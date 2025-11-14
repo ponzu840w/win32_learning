@@ -34,6 +34,7 @@ int WINAPI WinMain(HINSTANCE hInstance,
                    LPSTR     lpCmdLine,
                    int       nCmdShow)
 {
+  /*
 // 情報を格納するための文字列バッファ
     wchar_t debugInfo[512]; 
 
@@ -83,6 +84,7 @@ int WINAPI WinMain(HINSTANCE hInstance,
     NULL,
     NULL
   );
+  */
 
   ShowWindow(hwnd, nCmdShow);
 
