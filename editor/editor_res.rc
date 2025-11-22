@@ -1,0 +1,32 @@
+// editor_res.rc - リソーススクリプト
+#pragma code_page(65001) // UTF-8として読み込む指示
+
+#include "resource.h" // 上で作成したヘッダをインクルード
+
+// メニューバーの定義
+IDR_MYMENU MENU
+BEGIN
+    POPUP "ファイル(&F)"
+    BEGIN
+        MENUITEM "開く(&O)...",       IDM_FILE_OPEN
+        MENUITEM "保存(&S)",          IDM_FILE_SAVE
+        MENUITEM "名前を付けて保存(&A)...", IDM_FILE_SAVEAS
+        MENUITEM SEPARATOR
+        MENUITEM "終了(&X)",          IDM_FILE_EXIT
+    END
+    POPUP "ヘルプ(&H)"
+    BEGIN
+        MENUITEM "About...(&A)",    IDM_HELP_ABOUT
+    END
+END
+
+// Aboutダイアログの定義
+IDD_ABOUT DIALOGEX 0, 0, 180, 80
+//STYLE DS_SETFONT | DS_MODALFRAME | DS_FIXEDSZ | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "About Simple Editor"
+FONT 9, "MS Shell Dlg", 400, 0, 0x1
+BEGIN
+    LTEXT           "Simple Text Editor in C",-1,20,14,140,10
+    LTEXT           "Created as a Win32 API learning resource.",-1,20,28,140,10
+//    DEFPUSHBUTTON   "OK",IDOK,65,55,50,16
+END
