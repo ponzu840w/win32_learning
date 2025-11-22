@@ -1,0 +1,15 @@
+// resource.rc の先頭にこれを追加
+#pragma code_page(65001) // UTF-8として読み込む指示
+
+#include <windows.h>
+#include "resource.h"
+
+IDI_MYICON ICON "my_icon.ico"
+
+IDR_MYMENU MENU
+BEGIN
+    POPUP "ファイル(&F)"
+    BEGIN
+        MENUITEM "終了(&X)", IDM_EXIT
+    END
+END
