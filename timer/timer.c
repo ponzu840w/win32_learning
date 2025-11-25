@@ -1,22 +1,17 @@
 #include <windows.h>
 #include <commctrl.h>
 
-// „É™„É≥„ÇØÁî®„É©„Ç§„Éñ„É©„É™ÊåáÂÆö
-//#pragma comment(lib, "user32.lib")
-//#pragma comment(lib, "gdi32.lib")
-//#pragma comment(lib, "comctl32.lib")
-
-// ÂÆöÊï∞ÂÆöÁæ©
+// íËêîíËã`
 #define ID_TIMER 1
 #define ID_BTN_START 101
 #define ID_PBAR 102
-#define WORK_TIME (25 * 60) // 25ÂàÜ
-#define BREAK_TIME (5 * 60) // 5ÂàÜ
+#define WORK_TIME (25 * 60)
+#define BREAK_TIME (5 * 60)
 
-// „Ç∞„É≠„Éº„Éê„É´Â§âÊï∞
+// ÉOÉçÅ[ÉoÉãïœêî
 int g_timeLeft = WORK_TIME;
 int g_totalTime = WORK_TIME;
-BOOL g_isWorking = TRUE; 
+BOOL g_isWorking = TRUE;
 BOOL g_isRunning = FALSE;
 
 HWND hStaticTime;
@@ -25,137 +20,157 @@ HWND hBtnStart;
 HWND hProgressBar;
 HFONT hFontTime;
 
-// ÁîªÈù¢Ë°®Á§∫„ÇíÊõ¥Êñ∞„Åô„ÇãÈñ¢Êï∞
-void UpdateDisplay(HWND hwnd) {
-    wchar_t szTime[16];
-    wchar_t szStatus[64];
+// âÊñ ï\é¶ÇçXêVÇ∑ÇÈä÷êî
+void UpdateDisplay(HWND hwnd)
+{
+  char szTime[16];
+  char szStatus[64];
 
-    // ÊôÇÈñìË°®Á§∫„ÅÆÊõ¥Êñ∞ (MM:SS)
-    // swprintf „ÅØ wchar_tÁâà„ÅÆ sprintf „Åß„Åô
-    //swprintf(szTime, 16, L"%02d:%02d", g_timeLeft / 60, g_timeLeft % 60);
-    wsprintfW(szTime, L"%02d:%02d", g_timeLeft / 60, g_timeLeft % 60);
-    SetWindowTextW(hStaticTime, szTime);
+  wsprintf(szTime, "%02d:%02d", g_timeLeft / 60, g_timeLeft % 60);
+  SetWindowText(hStaticTime, szTime);
 
-    // „Éó„É≠„Ç∞„É¨„Çπ„Éê„ÉºÊõ¥Êñ∞
-    SendMessageW(hProgressBar, PBM_SETRANGE, 0, MAKELPARAM(0, g_totalTime));
-    SendMessageW(hProgressBar, PBM_SETPOS, g_timeLeft, 0);
+  // ÉvÉçÉOÉåÉXÉoÅ[çXêV
+  SendMessage(hProgressBar, PBM_SETRANGE, 0, MAKELPARAM(0, g_totalTime));
+  SendMessage(hProgressBar, PBM_SETPOS, g_timeLeft, 0);
 
-    // Áä∂ÊÖã„ÉÜ„Ç≠„Çπ„Éà„ÅÆÊõ¥Êñ∞
-    if (g_isWorking) {
-        wsprintfW(szStatus, L"‰ΩúÊ•≠‰∏≠ (ÈõÜ‰∏≠ÔºÅ)");
+  // èÛë‘ÉeÉLÉXÉgÇÃçXêV
+  if (g_isWorking) {
+    wsprintf(szStatus, "çÏã∆íÜÅI");
+  } else {
+    wsprintf(szStatus, "ãxåeéûä‘");
+  }
+  SetWindowText(hStaticStatus, szStatus);
+}
+
+// --- ÉEÉBÉìÉhÉEÉvÉçÉVÅ[ÉWÉÉ ---
+LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
+{
+  switch (msg) {
+  case WM_CREATE:
+    {
+      INITCOMMONCONTROLSEX icex;
+      icex.dwSize = sizeof(INITCOMMONCONTROLSEX);
+      icex.dwICC = ICC_PROGRESS_CLASS;
+      InitCommonControlsEx(&icex);
+
+      hFontTime = CreateFont(
+          60, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
+          ANSI_CHARSET,
+          OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+          DEFAULT_QUALITY, DEFAULT_PITCH | FF_SWISS, "Arial"
+          );
+
+      hStaticStatus = CreateWindow("STATIC", "",
+          WS_CHILD | WS_VISIBLE | SS_CENTER,
+          10, 10, 260, 20, hwnd, NULL, ((LPCREATESTRUCT)lParam)->hInstance, NULL);
+
+      hStaticTime = CreateWindow("STATIC", "00:00",
+          WS_CHILD | WS_VISIBLE | SS_CENTER,
+          10, 40, 260, 70, hwnd, NULL, ((LPCREATESTRUCT)lParam)->hInstance, NULL);
+      SendMessage(hStaticTime, WM_SETFONT, (WPARAM)hFontTime, TRUE);
+
+      hProgressBar = CreateWindow(PROGRESS_CLASS, NULL,
+          WS_CHILD | WS_VISIBLE | PBS_SMOOTH,
+          20, 120, 240, 20, hwnd, (HMENU)ID_PBAR, ((LPCREATESTRUCT)lParam)->hInstance, NULL);
+
+      hBtnStart = CreateWindow("BUTTON", "äJén",
+          WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
+          90, 160, 100, 30, hwnd, (HMENU)ID_BTN_START, ((LPCREATESTRUCT)lParam)->hInstance, NULL);
+
+      UpdateDisplay(hwnd);
+    }
+    break;
+
+  case WM_COMMAND:
+    if (LOWORD(wParam) == ID_BTN_START) {
+      if (g_isRunning) {
+        KillTimer(hwnd, ID_TIMER);
+        SetWindowText(hBtnStart, "çƒäJ");
+        g_isRunning = FALSE;
+      } else {
+        SetTimer(hwnd, ID_TIMER, 1000, NULL);
+        SetWindowText(hBtnStart, "àÍéûí‚é~");
+        g_isRunning = TRUE;
+      }
+    }
+    break;
+
+  case WM_TIMER:
+    if (g_timeLeft > 0) {
+      g_timeLeft--;
+      UpdateDisplay(hwnd);
     } else {
-        wsprintfW(szStatus, L"‰ºëÊÜ©‰∏≠ („É™„É©„ÉÉ„ÇØ„Çπ)");
+      KillTimer(hwnd, ID_TIMER);
+      g_isRunning = FALSE;
+      SetWindowText(hBtnStart, "äJén");
+      MessageBeep(MB_ICONASTERISK);
+
+      if (g_isWorking) {
+        MessageBox(hwnd, "ÇÊÇ≠äÊí£Ç¡ÇΩÅBãxëßÇÃéûä‘ÇæÅI", "çÏã∆éûä‘èIóπ", MB_OK | MB_TOPMOST);
+        g_isWorking = FALSE;
+        g_totalTime = BREAK_TIME;
+        g_timeLeft = BREAK_TIME;
+      } else {
+        MessageBox(hwnd, "ãxëßèIÇÌÇËÅAçÏã∆Ç…ñﬂÇÍÅI", "ãxåeéûä‘èIóπ", MB_OK | MB_TOPMOST);
+        g_isWorking = TRUE;
+        g_totalTime = WORK_TIME;
+        g_timeLeft = WORK_TIME;
+      }
+      UpdateDisplay(hwnd);
     }
-    SetWindowTextW(hStaticStatus, szStatus);
+    break;
+
+  case WM_DESTROY:
+    DeleteObject(hFontTime);
+    PostQuitMessage(0);
+    break;
+
+  default:
+    return DefWindowProc(hwnd, msg, wParam, lParam);
+  }
+  return 0;
 }
 
-// „Ç¶„Ç£„É≥„Éâ„Ç¶„Éó„É≠„Ç∑„Éº„Ç∏„É£
-LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
-    switch (msg) {
-    case WM_CREATE:
-        {
-            INITCOMMONCONTROLSEX icex;
-            icex.dwSize = sizeof(INITCOMMONCONTROLSEX);
-            icex.dwICC = ICC_PROGRESS_CLASS;
-            InitCommonControlsEx(&icex);
+// --- ÉGÉìÉgÉäÉ|ÉCÉìÉg ---
+int WINAPI WinMain(HINSTANCE hInstance,
+                   HINSTANCE hPrevInstance,
+                   LPSTR     lpCmdLine,
+                   int       nCmdShow)
+{
+  // --- èâä˙âª ---
+  const char CLASS_NAME[] = "TimerWindowClass";
 
-            // „Éï„Ç©„É≥„Éà‰ΩúÊàê
-            hFontTime = CreateFontW(
-                60, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
-                DEFAULT_CHARSET, // Unicode„Å™„ÅÆ„ÅßShift-JISÊåáÂÆö„ÅØ‰∏çË¶Å
-                OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
-                DEFAULT_QUALITY, DEFAULT_PITCH | FF_SWISS, L"Arial"
-            );
+  // ÉEÉBÉìÉhÉEÉNÉâÉXÇçÏÇÈ
+  WNDCLASSEX wc = {0};
+  wc.lpfnWndProc = WindowProc;
+  wc.lpszClassName = CLASS_NAME;
+  wc.style = CS_HREDRAW | CS_VREDRAW;
+  wc.hbrBackground = (HBRUSH)(COLOR_WINDOW + 1);
+  wc.cbSize = sizeof(WNDCLASSEX);
+  wc.hInstance = hInstance;
+  wc.hCursor = LoadCursor(NULL, IDC_ARROW);
+  RegisterClassEx(&wc);  // ÉEÉBÉìÉhÉEÉNÉâÉXÇìoò^
 
-            // „Ç≥„É≥„Éà„É≠„Éº„É´ÈÖçÁΩÆ (CreateWindowW„Çí‰ΩøÁî®)
-            hStaticStatus = CreateWindowW(L"STATIC", L"", 
-                WS_CHILD | WS_VISIBLE | SS_CENTER,
-                10, 10, 260, 20, hwnd, NULL, ((LPCREATESTRUCT)lParam)->hInstance, NULL);
+  // ÉEÉBÉìÉhÉEÉNÉâÉXÇé¿ëÃâª
+  HWND hwnd = CreateWindow(
+    CLASS_NAME,
+    "èWíÜÉ^ÉCÉ}Å[",
+    WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX,
+    CW_USEDEFAULT, CW_USEDEFAULT,
+    300, 250,
+    NULL, NULL, hInstance, NULL
+  );
 
-            hStaticTime = CreateWindowW(L"STATIC", L"00:00", 
-                WS_CHILD | WS_VISIBLE | SS_CENTER,
-                10, 40, 260, 70, hwnd, NULL, ((LPCREATESTRUCT)lParam)->hInstance, NULL);
-            SendMessageW(hStaticTime, WM_SETFONT, (WPARAM)hFontTime, TRUE);
+  ShowWindow(hwnd, nCmdShow);
+  UpdateWindow(hwnd);
 
-            hProgressBar = CreateWindowW(PROGRESS_CLASSW, NULL, 
-                WS_CHILD | WS_VISIBLE | PBS_SMOOTH,
-                20, 120, 240, 20, hwnd, (HMENU)ID_PBAR, ((LPCREATESTRUCT)lParam)->hInstance, NULL);
+  // --- ÉÅÉbÉZÅ[ÉWÉãÅ[Év ---
+  MSG msg = {0};
+  while (GetMessage(&msg, NULL, 0, 0))
+  {
+    TranslateMessage(&msg);
+    DispatchMessage(&msg);
+  }
 
-            hBtnStart = CreateWindowW(L"BUTTON", L"ÈñãÂßã", 
-                WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
-                90, 160, 100, 30, hwnd, (HMENU)ID_BTN_START, ((LPCREATESTRUCT)lParam)->hInstance, NULL);
-
-            UpdateDisplay(hwnd);
-        }
-        break;
-
-    case WM_COMMAND:
-        if (LOWORD(wParam) == ID_BTN_START) {
-            if (g_isRunning) {
-                KillTimer(hwnd, ID_TIMER);
-                SetWindowTextW(hBtnStart, L"ÂÜçÈñã");
-                g_isRunning = FALSE;
-            } else {
-                SetTimer(hwnd, ID_TIMER, 1000, NULL);
-                SetWindowTextW(hBtnStart, L"‰∏ÄÊôÇÂÅúÊ≠¢");
-                g_isRunning = TRUE;
-            }
-        }
-        break;
-
-    case WM_TIMER:
-        if (g_timeLeft > 0) {
-            g_timeLeft--;
-            UpdateDisplay(hwnd);
-        } else {
-            KillTimer(hwnd, ID_TIMER);
-            g_isRunning = FALSE;
-            SetWindowTextW(hBtnStart, L"ÈñãÂßã");
-            MessageBeep(MB_ICONASTERISK);
-
-            if (g_isWorking) {
-                MessageBoxW(hwnd, L"25ÂàÜÁµåÈÅé„Åó„Åæ„Åó„Åü„ÄÇ\n5ÂàÜ‰ºëÊÜ©„Åó„Åæ„Åó„Çá„ÅÜÔºÅ", L"„ÅäÁñ≤„ÇåÊßò", MB_OK | MB_TOPMOST);
-                g_isWorking = FALSE;
-                g_totalTime = BREAK_TIME;
-                g_timeLeft = BREAK_TIME;
-            } else {
-                MessageBoxW(hwnd, L"‰ºëÊÜ©ÁµÇ‰∫Ü„Åß„Åô„ÄÇ\n‰ΩúÊ•≠„Å´Êàª„Çä„Åæ„Åó„Çá„ÅÜÔºÅ", L"„Åï„ÅÇ„ÄÅÈõÜ‰∏≠", MB_OK | MB_TOPMOST);
-                g_isWorking = TRUE;
-                g_totalTime = WORK_TIME;
-                g_timeLeft = WORK_TIME;
-            }
-            UpdateDisplay(hwnd);
-        }
-        break;
-
-    case WM_DESTROY:
-        DeleteObject(hFontTime);
-        PostQuitMessage(0);
-        break;
-
-    default:
-        return DefWindowProcW(hwnd, msg, wParam, lParam);
-    }
-    return 0;
-}
-
-int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow) {
-    WNDCLASSEXW wc = { sizeof(WNDCLASSEXW), CS_HREDRAW | CS_VREDRAW, WndProc, 0, 0, hInstance, NULL, LoadCursor(NULL, IDC_ARROW), (HBRUSH)(COLOR_WINDOW + 1), NULL, L"PomodoroClass", NULL };
-    
-    if (!RegisterClassExW(&wc)) return 0;
-
-    HWND hwnd = CreateWindowW(L"PomodoroClass", L"Pomodoro Timer",
-        WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX,
-        CW_USEDEFAULT, CW_USEDEFAULT, 300, 250,
-        NULL, NULL, hInstance, NULL);
-
-    ShowWindow(hwnd, nCmdShow);
-    UpdateWindow(hwnd);
-
-    MSG msg;
-    while (GetMessageW(&msg, NULL, 0, 0)) {
-        TranslateMessage(&msg);
-        DispatchMessageW(&msg);
-    }
-    return (int)msg.wParam;
+  return (int)msg.wParam;
 }
