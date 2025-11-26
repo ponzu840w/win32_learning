@@ -10,6 +10,12 @@
 #define FPS           60
 #define FRAME_TIME    (1000 / FPS)
 
+typedef struct {
+  double x,y;
+  double speed;
+  Sprite sprite;
+} Player;
+
 // グローバル変数（簡易化のため）
 HINSTANCE hInst;
 HDC hdcMem;             // 裏画面用DC (ダブルバッファ)
@@ -17,6 +23,8 @@ HBITMAP hBmpOffscreen;  // 裏画面用ビットマップ
 
 HBITMAP hBmpBgBack;     // 遠景（山）
 Sprite  spriteCloud;    // 近景（雲）
+
+Player  player;         // プレイヤーキャラクター
 
 // スクロール用変数
 double scroll_y_back = 0.0;
@@ -140,9 +148,13 @@ void InitGame(HWND hWnd) {
 
     // リソースロード
     hBmpBgBack = LoadBitmap(hInst, MAKEINTRESOURCE(IDB_BG_BACK));
-
-    // 雲はスプライトとしてロード（マスク自動生成）
     LoadSprite(hInst, &spriteCloud, IDB_BG_FRONT);
+
+    LoadSprite(hInst, &player.sprite, IDB_PLAYER);
+    player.speed = 4.0;
+
+    player.x = (WINDOW_WIDTH - player.sprite.width) / 2.0;
+    player.y = WINDOW_HEIGHT - player.sprite.height - 20.0; // 下から20px浮かす
 
     ReleaseDC(hWnd, hdc);
 }
@@ -151,6 +163,7 @@ void InitGame(HWND hWnd) {
 void UninitGame(void) {
     DeleteObject(hBmpBgBack);
     UnloadSprite(&spriteCloud);   // 雲の解放
+    UnloadSprite(&player.sprite);  // プレイヤーの解放
     DeleteObject(hBmpOffscreen);
     DeleteDC(hdcMem);
 }
@@ -159,6 +172,29 @@ void UninitGame(void) {
 void Update(void) {
     scroll_y_back += 1.0;
     scroll_y_front += 3.0;
+
+    // 左
+    if (GetAsyncKeyState(VK_LEFT) & 0x8000) {
+        player.x -= player.speed;
+    }
+    // 右
+    if (GetAsyncKeyState(VK_RIGHT) & 0x8000) {
+        player.x += player.speed;
+    }
+    // 上
+    if (GetAsyncKeyState(VK_UP) & 0x8000) {
+        player.y -= player.speed;
+    }
+    // 下
+    if (GetAsyncKeyState(VK_DOWN) & 0x8000) {
+        player.y += player.speed;
+    }
+
+    // 画面外に出ないように制限（クランプ処理）
+    if (player.x < 0) player.x = 0;
+    if (player.x > WINDOW_WIDTH - player.sprite.width) player.x = WINDOW_WIDTH - player.sprite.width;
+    if (player.y < 0) player.y = 0;
+    if (player.y > WINDOW_HEIGHT - player.sprite.height) player.y = WINDOW_HEIGHT - player.sprite.height;
 }
 
 // 描画
@@ -172,6 +208,10 @@ void Draw(HWND hWnd) {
 
     if (spriteCloud.hBmpImage) {
         DrawScrollingCloud(hdcMem, &spriteCloud, (int)scroll_y_front);
+    }
+
+    if (player.sprite.hBmpImage) {
+        DrawSprite(hdcMem, (int)player.x, (int)player.y, &player.sprite);
     }
 
     HDC hdc = GetDC(hWnd);
