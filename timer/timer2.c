@@ -169,7 +169,8 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
       break;
     case IDM_SETTINGS:
       // モーダルダイアログを開く
-      if (DialogBox(hInst, MAKEINTRESOURCE(IDD_SETTINGS), hwnd, SettingsDlgProc) == IDOK) {
+      if (DialogBox(hInst, MAKEINTRESOURCE(IDD_SETTINGS), hwnd, SettingsDlgProc) == IDOK)
+      {
         // OKで戻ってきたら、即座に時間を反映してリセット
         KillTimer(hwnd, ID_TIMER);
         g_isRunning = FALSE;
