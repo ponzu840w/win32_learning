@@ -1,0 +1,44 @@
+#include <windows.h>
+#include "resource.h"
+#pragma code_page(932)
+
+// メニューバーの定義
+IDR_MENU MENU
+BEGIN
+    POPUP "ファイル(&F)"
+    BEGIN
+        MENUITEM "終了(&X)", IDM_EXIT
+    END
+    POPUP "ツール(&T)"
+    BEGIN
+        MENUITEM "設定(&S)...", IDM_SETTINGS
+    END
+END
+
+/*
+// 設定ダイアログの定義
+IDD_SETTINGS DIALOGEX 0, 0, 220, 160
+STYLE DS_SETFONT | DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "時間設定"
+FONT 9, "MS UI Gothic"
+BEGIN
+    // --- 作業時間グループ ---
+    GROUPBOX        "作業時間 (分)",IDC_STATIC,10,10,200,60
+    // スライダー
+    CONTROL         "",IDC_SLIDER_WORK,"msctls_trackbar32",TBS_AUTOTICKS | WS_TABSTOP,20,25,120,20
+    // エディットボックス（数字のみ入力可）
+    EDITTEXT        IDC_EDIT_WORK,150,25,30,14,ES_AUTOHSCROLL | ES_NUMBER
+    // スピンコントロール (エディットの横にくっつく)
+    CONTROL         "",IDC_SPIN_WORK,"msctls_updown32",UDS_SETBUDDYINT | UDS_ALIGNRIGHT | UDS_AUTOBUDDY | UDS_ARROWKEYS,180,25,11,14
+    // --- 休憩時間グループ ---
+    GROUPBOX        "休憩時間 (分)",IDC_STATIC,10,80,200,60
+    CONTROL         "",IDC_SLIDER_BREAK,"msctls_trackbar32",TBS_AUTOTICKS | WS_TABSTOP,20,95,120,20
+    EDITTEXT        IDC_EDIT_BREAK,150,95,30,14,ES_AUTOHSCROLL | ES_NUMBER
+    CONTROL         "",IDC_SPIN_BREAK,"msctls_updown32",UDS_SETBUDDYINT | UDS_ALIGNRIGHT | UDS_AUTOBUDDY | UDS_ARROWKEYS,180,95,11,14
+
+    // OK / キャンセル ボタン
+    DEFPUSHBUTTON   "OK",IDOK,55,140,50,14
+    PUSHBUTTON      "キャンセル",IDCANCEL,115,140,50,14
+END
+
+*/
