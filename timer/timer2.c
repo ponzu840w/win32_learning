@@ -27,7 +27,7 @@ HINSTANCE hInst;
 // 関数プロトタイプ
 void UpdateDisplay(HWND hwnd);
 
-// --- 設定ダイアログ用プロシージャ ---
+/// --- 設定ダイアログ用プロシージャ ---
 INT_PTR CALLBACK SettingsDlgProc(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
 {
   switch (message)
@@ -38,55 +38,84 @@ INT_PTR CALLBACK SettingsDlgProc(HWND hDlg, UINT message, WPARAM wParam, LPARAM 
       SendDlgItemMessage(hDlg, IDC_SLIDER_WORK, TBM_SETRANGE, TRUE, MAKELPARAM(1, 60));
       SendDlgItemMessage(hDlg, IDC_SLIDER_BREAK, TBM_SETRANGE, TRUE, MAKELPARAM(1, 60));
 
-      // 2. 現在の値をセット
-      // スピンコントロールのバディ(相棒)をセット (UDS_AUTOBUDDYがあるので省略可だが念の為)
-      SendDlgItemMessage(hDlg, IDC_SPIN_WORK, UDM_SETBUDDY, (WPARAM)GetDlgItem(hDlg, IDC_EDIT_WORK), 0);
-      SendDlgItemMessage(hDlg, IDC_SPIN_BREAK, UDM_SETBUDDY, (WPARAM)GetDlgItem(hDlg, IDC_EDIT_BREAK), 0);
+      // 2. スピンコントロールの範囲設定 (重要！) 
+      // UDM_SETRANGE32 を使います (最小, 最大)
+      SendDlgItemMessage(hDlg, IDC_SPIN_WORK, UDM_SETRANGE32, 1, 60);
+      SendDlgItemMessage(hDlg, IDC_SPIN_BREAK, UDM_SETRANGE32, 1, 60);
+
+      // 3. バディの設定
+      SendDlgItemMessage(hDlg, IDC_SPIN_WORK, UDM_SETBUDDY,
+                         (WPARAM)GetDlgItem(hDlg, IDC_EDIT_WORK), 0);
+      SendDlgItemMessage(hDlg, IDC_SPIN_BREAK, UDM_SETBUDDY,
+                         (WPARAM)GetDlgItem(hDlg, IDC_EDIT_BREAK), 0);
+
+      // 4. 現在の値をセット
+      // スピンコントロールに値をセットすると、UDS_SETBUDDYINTの効果で自動的にエディットボックスも書き換わります
+      SendDlgItemMessage(hDlg, IDC_SPIN_WORK, UDM_SETPOS32, 0, g_settingWorkMin);
+      SendDlgItemMessage(hDlg, IDC_SPIN_BREAK, UDM_SETPOS32, 0, g_settingBreakMin);
 
       // スライダーの位置合わせ
       SendDlgItemMessage(hDlg, IDC_SLIDER_WORK, TBM_SETPOS, TRUE, g_settingWorkMin);
       SendDlgItemMessage(hDlg, IDC_SLIDER_BREAK, TBM_SETPOS, TRUE, g_settingBreakMin);
-
-      // エディットボックスの値セット（スピンにも反映される）
-      SetDlgItemInt(hDlg, IDC_EDIT_WORK, g_settingWorkMin, FALSE);
-      SetDlgItemInt(hDlg, IDC_EDIT_BREAK, g_settingBreakMin, FALSE);
     }
     return (INT_PTR)TRUE;
 
   case WM_HSCROLL:
     // スライダーが動かされた時の処理
-    // エディットボックスの数字も連動して書き換える
+    // ここでエディットボックス(SetDlgItemInt)ではなく、スピンコントロール(UDM_SETPOS32)を更新するのがコツです。
+    // スピンコントロールが更新されれば、自動的にエディットボックスの数字も変わります。
     if ((HWND)lParam == GetDlgItem(hDlg, IDC_SLIDER_WORK)) {
       int pos = SendMessage((HWND)lParam, TBM_GETPOS, 0, 0);
-      SetDlgItemInt(hDlg, IDC_EDIT_WORK, pos, FALSE);
+      SendDlgItemMessage(hDlg, IDC_SPIN_WORK, UDM_SETPOS32, 0, pos);
     }
     else if ((HWND)lParam == GetDlgItem(hDlg, IDC_SLIDER_BREAK)) {
       int pos = SendMessage((HWND)lParam, TBM_GETPOS, 0, 0);
-      SetDlgItemInt(hDlg, IDC_EDIT_BREAK, pos, FALSE);
+      SendDlgItemMessage(hDlg, IDC_SPIN_BREAK, UDM_SETPOS32, 0, pos);
     }
     return (INT_PTR)TRUE;
 
   case WM_COMMAND:
-    // エディットボックスが書き換えられたらスライダーも動かす
+    // エディットボックスが（キーボード入力などで）書き換えられたら
     if (HIWORD(wParam) == EN_CHANGE) {
       int id = LOWORD(wParam);
-      int val = GetDlgItemInt(hDlg, id, NULL, FALSE);
-      if (id == IDC_EDIT_WORK) {
-        SendDlgItemMessage(hDlg, IDC_SLIDER_WORK, TBM_SETPOS, TRUE, val);
-      } else if (id == IDC_EDIT_BREAK) {
-        SendDlgItemMessage(hDlg, IDC_SLIDER_BREAK, TBM_SETPOS, TRUE, val);
+      // 入力された値を取得
+      BOOL translated;
+      int val = GetDlgItemInt(hDlg, id, &translated, FALSE);
+
+      if (translated) {
+        // 値の範囲制限 (1-60)
+        if (val < 1)  val = 1;
+        if (val > 60) val = 60;
+
+        if (id == IDC_EDIT_WORK) {
+          // スライダーを同期
+          SendDlgItemMessage(hDlg, IDC_SLIDER_WORK, TBM_SETPOS, TRUE, val);
+          // スピンコントロールの内部状態も同期 (これが抜けているとボタンを押した時に値が飛びます)
+          // ただし、無限ループ防止のため、現在値と違う場合のみセットしても良いですが、
+          // UDM_SETPOS32 は賢いのでそのまま呼んでも大抵大丈夫です。
+          if (SendMessage(GetDlgItem(hDlg, IDC_SPIN_WORK), UDM_GETPOS32, 0, 0) != val) {
+             SendDlgItemMessage(hDlg, IDC_SPIN_WORK, UDM_SETPOS32, 0, val);
+          }
+        } else if (id == IDC_EDIT_BREAK) {
+          SendDlgItemMessage(hDlg, IDC_SLIDER_BREAK, TBM_SETPOS, TRUE, val);
+          if (SendMessage(GetDlgItem(hDlg, IDC_SPIN_BREAK), UDM_GETPOS32, 0, 0) != val) {
+             SendDlgItemMessage(hDlg, IDC_SPIN_BREAK, UDM_SETPOS32, 0, val);
+          }
+        }
       }
     }
 
     if (LOWORD(wParam) == IDOK)
     {
-      // OKボタンが押されたら値を保存
+      // OKボタン処理
       g_settingWorkMin = GetDlgItemInt(hDlg, IDC_EDIT_WORK, NULL, FALSE);
       g_settingBreakMin = GetDlgItemInt(hDlg, IDC_EDIT_BREAK, NULL, FALSE);
 
-      // 0分などの不正値チェック（簡易）
+      // 範囲チェック
       if (g_settingWorkMin < 1) g_settingWorkMin = 1;
       if (g_settingBreakMin < 1) g_settingBreakMin = 1;
+      if (g_settingWorkMin > 60) g_settingWorkMin = 60;
+      if (g_settingBreakMin > 60) g_settingBreakMin = 60;
 
       EndDialog(hDlg, LOWORD(wParam));
       return (INT_PTR)TRUE;
@@ -126,9 +155,14 @@ void UpdateDisplay(HWND hwnd)
 // --- ウィンドウプロシージャ ---
 LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 {
+  HINSTANCE hInst_local = ((LPCREATESTRUCT)lParam)->hInstance;
+
   switch (msg) {
   case WM_CREATE:
     {
+  CHAR tmp[512] = "";
+  wsprintf(tmp, "hInst_local:%d, hInst:%d",hInst_local,hInst);
+  MessageBox(hwnd, tmp, "debug", MB_OK);
       INITCOMMONCONTROLSEX icex;
       icex.dwSize = sizeof(INITCOMMONCONTROLSEX);
       icex.dwICC = ICC_PROGRESS_CLASS | ICC_BAR_CLASSES | ICC_UPDOWN_CLASS; // クラス追加
@@ -143,20 +177,20 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 
       hStaticStatus = CreateWindow("STATIC", "",
           WS_CHILD | WS_VISIBLE | SS_CENTER,
-          10, 10, 260, 20, hwnd, NULL, ((LPCREATESTRUCT)lParam)->hInstance, NULL);
+          10, 10, 260, 20, hwnd, NULL, hInst, NULL);
 
       hStaticTime = CreateWindow("STATIC", "00:00",
           WS_CHILD | WS_VISIBLE | SS_CENTER,
-          10, 40, 260, 70, hwnd, NULL, ((LPCREATESTRUCT)lParam)->hInstance, NULL);
+          10, 40, 260, 70, hwnd, NULL, hInst, NULL);
       SendMessage(hStaticTime, WM_SETFONT, (WPARAM)hFontTime, TRUE);
 
       hProgressBar = CreateWindow(PROGRESS_CLASS, NULL,
           WS_CHILD | WS_VISIBLE | PBS_SMOOTH,
-          20, 120, 240, 20, hwnd, (HMENU)ID_PBAR, ((LPCREATESTRUCT)lParam)->hInstance, NULL);
+          20, 120, 240, 20, hwnd, (HMENU)ID_PBAR, hInst, NULL);
 
       hBtnStart = CreateWindow("BUTTON", "開始",
           WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
-          90, 160, 100, 30, hwnd, (HMENU)ID_BTN_START, ((LPCREATESTRUCT)lParam)->hInstance, NULL);
+          90, 160, 100, 30, hwnd, (HMENU)ID_BTN_START, hInst, NULL);
 
       UpdateDisplay(hwnd);
     }
@@ -258,11 +292,9 @@ int WINAPI WinMain(HINSTANCE hInstance,
 
   // ウィンドウクラスを実体化
   HWND hwnd = CreateWindow(
-    CLASS_NAME,
-    "集中タイマー",
+    CLASS_NAME, "集中タイマー",
     WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX,
-    CW_USEDEFAULT, CW_USEDEFAULT,
-    300, 250,
+    CW_USEDEFAULT, CW_USEDEFAULT, 300, 250,
     NULL, NULL, hInstance, NULL
   );
 

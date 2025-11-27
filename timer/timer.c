@@ -1,5 +1,6 @@
 #include <windows.h>
 #include <commctrl.h>
+#include <stdio.h>
 
 // 定数定義
 #define ID_TIMER 1
@@ -19,6 +20,7 @@ HWND hStaticStatus;
 HWND hBtnStart;
 HWND hProgressBar;
 HFONT hFontTime;
+HINSTANCE hInst;
 
 // 画面表示を更新する関数
 void UpdateDisplay(HWND hwnd)
@@ -76,6 +78,10 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
       hBtnStart = CreateWindow("BUTTON", "開始",
           WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
           90, 160, 100, 30, hwnd, (HMENU)ID_BTN_START, ((LPCREATESTRUCT)lParam)->hInstance, NULL);
+
+      CHAR tmp[512] = "";
+      sprintf(tmp, "hInst from lParam is %d,\nhInst is %d",  ((LPCREATESTRUCT)lParam)->hInstance, hInst);
+      MessageBox(hwnd, tmp, "DEBUG", MB_OK | MB_TOPMOST);
 
       UpdateDisplay(hwnd);
     }
@@ -139,6 +145,7 @@ int WINAPI WinMain(HINSTANCE hInstance,
 {
   // --- 初期化 ---
   const char CLASS_NAME[] = "TimerWindowClass";
+  hInst = hInstance;
 
   // ウィンドウクラスを作る
   WNDCLASSEX wc = {0};
