@@ -1,0 +1,8 @@
+#include "resource.h"
+
+// ビットマップの登録
+// ID       TYPE    FILENAME
+IDB_BG_BACK  BITMAP  "bg_back.bmp"
+IDB_BG_FRONT BITMAP  "bg_front.bmp"
+IDB_PLAYER   BITMAP  "player.bmp"
+IDB_ENEMY    BITMAP  "enemy.bmp"
