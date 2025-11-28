@@ -130,6 +130,24 @@ INT_PTR CALLBACK SettingsDlgProc(HWND hDlg, UINT message, WPARAM wParam, LPARAM 
   return (INT_PTR)FALSE;
 }
 
+/// --- Aboutダイアログ用プロシージャ ---
+INT_PTR CALLBACK AboutDlgProc(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
+{
+  switch (message)
+  {
+  case WM_COMMAND:
+    switch (LOWORD(wParam))
+    {
+    case IDOK:
+    case IDCANCEL:
+      EndDialog(hDlg, LOWORD(wParam));
+      return (INT_PTR)TRUE;
+    }
+    break;
+  }
+  return (INT_PTR)FALSE;
+}
+
 // 画面表示を更新する関数
 void UpdateDisplay(HWND hwnd)
 {
@@ -155,14 +173,9 @@ void UpdateDisplay(HWND hwnd)
 // --- ウィンドウプロシージャ ---
 LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 {
-  HINSTANCE hInst_local = ((LPCREATESTRUCT)lParam)->hInstance;
-
   switch (msg) {
   case WM_CREATE:
     {
-  CHAR tmp[512] = "";
-  wsprintf(tmp, "hInst_local:%d, hInst:%d",hInst_local,hInst);
-  MessageBox(hwnd, tmp, "debug", MB_OK);
       INITCOMMONCONTROLSEX icex;
       icex.dwSize = sizeof(INITCOMMONCONTROLSEX);
       icex.dwICC = ICC_PROGRESS_CLASS | ICC_BAR_CLASSES | ICC_UPDOWN_CLASS; // クラス追加
@@ -217,6 +230,9 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
         UpdateDisplay(hwnd);
         MessageBox(hwnd, "設定を更新し、タイマーをリセットしました。", "設定変更", MB_OK);
       }
+      break;
+    case IDM_ABOUT:
+      DialogBox(hInst, MAKEINTRESOURCE(IDD_ABOUT), hwnd, AboutDlgProc);
       break;
     case ID_BTN_START:
       if (g_isRunning) {
@@ -311,3 +327,9 @@ int WINAPI WinMain(HINSTANCE hInstance,
 
   return (int)msg.wParam;
 }
+
+/*
+  CHAR tmp[512] = "";
+  wsprintf(tmp, "hInst_local:%d, hInst:%d",hInst_local,hInst);
+  MessageBox(hwnd, tmp, "debug", MB_OK);
+  */
