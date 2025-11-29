@@ -1,1 +1,0 @@
-tcc -impdef d3d8.dll
