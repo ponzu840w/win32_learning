@@ -1,6 +1,6 @@
-#include <windows.h>
-#include <commctrl.h>
-#include "resource.h"
+#include <windows.h>  // ウィンドウを出すため
+#include <commctrl.h> // コモンコントロールのため
+#include "resource.h" // リソース定義
 
 // 定数定義
 #define ID_TIMER 1
@@ -8,291 +8,42 @@
 #define ID_PBAR 102
 
 // デフォルト値
-int g_settingWorkMin = 25;
-int g_settingBreakMin = 5;
+#define LEN_WORK_DEFAULT  25;
+#define LEN_BREAK_DEFAULT  5;
 
 // グローバル変数
-int g_timeLeft = 25*60;
-int g_totalTime = 25*60;
-BOOL g_isWorking = TRUE;
-BOOL g_isRunning = FALSE;
+int len_work;           // 作業時間 デフォルト 25(分)
+int len_break;          // 休憩時間 デフォルト  5(分)
+int time_left;          // 残り時間
+BOOL isWorking = TRUE;  // 作業中?
+BOOL isRunning = FALSE; // カウントダウン中?
 
+// メインウィンドウのUIハンドル
 HWND hStaticTime;
 HWND hStaticStatus;
 HWND hBtnStart;
 HWND hProgressBar;
 HFONT hFontTime;
+HFONT hFontMain;
 HINSTANCE hInst;
 
 // 関数プロトタイプ
-void UpdateDisplay(HWND hwnd);
-
-/// --- 設定ダイアログ用プロシージャ ---
-INT_PTR CALLBACK SettingsDlgProc(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
-{
-  switch (message)
-  {
-  case WM_INITDIALOG:
-    {
-      // 1. スライダーの範囲設定 (1分～60分)
-      SendDlgItemMessage(hDlg, IDC_SLIDER_WORK, TBM_SETRANGE, TRUE, MAKELPARAM(1, 60));
-      SendDlgItemMessage(hDlg, IDC_SLIDER_BREAK, TBM_SETRANGE, TRUE, MAKELPARAM(1, 60));
-
-      // 2. スピンコントロールの範囲設定 (重要！) 
-      // UDM_SETRANGE32 を使います (最小, 最大)
-      SendDlgItemMessage(hDlg, IDC_SPIN_WORK, UDM_SETRANGE32, 1, 60);
-      SendDlgItemMessage(hDlg, IDC_SPIN_BREAK, UDM_SETRANGE32, 1, 60);
-
-      // 3. バディの設定
-      SendDlgItemMessage(hDlg, IDC_SPIN_WORK, UDM_SETBUDDY,
-                         (WPARAM)GetDlgItem(hDlg, IDC_EDIT_WORK), 0);
-      SendDlgItemMessage(hDlg, IDC_SPIN_BREAK, UDM_SETBUDDY,
-                         (WPARAM)GetDlgItem(hDlg, IDC_EDIT_BREAK), 0);
-
-      // 4. 現在の値をセット
-      // スピンコントロールに値をセットすると、UDS_SETBUDDYINTの効果で自動的にエディットボックスも書き換わります
-      SendDlgItemMessage(hDlg, IDC_SPIN_WORK, UDM_SETPOS32, 0, g_settingWorkMin);
-      SendDlgItemMessage(hDlg, IDC_SPIN_BREAK, UDM_SETPOS32, 0, g_settingBreakMin);
-
-      // スライダーの位置合わせ
-      SendDlgItemMessage(hDlg, IDC_SLIDER_WORK, TBM_SETPOS, TRUE, g_settingWorkMin);
-      SendDlgItemMessage(hDlg, IDC_SLIDER_BREAK, TBM_SETPOS, TRUE, g_settingBreakMin);
-    }
-    return (INT_PTR)TRUE;
-
-  case WM_HSCROLL:
-    // スライダーが動かされた時の処理
-    // ここでエディットボックス(SetDlgItemInt)ではなく、スピンコントロール(UDM_SETPOS32)を更新するのがコツです。
-    // スピンコントロールが更新されれば、自動的にエディットボックスの数字も変わります。
-    if ((HWND)lParam == GetDlgItem(hDlg, IDC_SLIDER_WORK)) {
-      int pos = SendMessage((HWND)lParam, TBM_GETPOS, 0, 0);
-      SendDlgItemMessage(hDlg, IDC_SPIN_WORK, UDM_SETPOS32, 0, pos);
-    }
-    else if ((HWND)lParam == GetDlgItem(hDlg, IDC_SLIDER_BREAK)) {
-      int pos = SendMessage((HWND)lParam, TBM_GETPOS, 0, 0);
-      SendDlgItemMessage(hDlg, IDC_SPIN_BREAK, UDM_SETPOS32, 0, pos);
-    }
-    return (INT_PTR)TRUE;
-
-  case WM_COMMAND:
-    // エディットボックスが（キーボード入力などで）書き換えられたら
-    if (HIWORD(wParam) == EN_CHANGE) {
-      int id = LOWORD(wParam);
-      // 入力された値を取得
-      BOOL translated;
-      int val = GetDlgItemInt(hDlg, id, &translated, FALSE);
-
-      if (translated) {
-        // 値の範囲制限 (1-60)
-        if (val < 1)  val = 1;
-        if (val > 60) val = 60;
-
-        if (id == IDC_EDIT_WORK) {
-          // スライダーを同期
-          SendDlgItemMessage(hDlg, IDC_SLIDER_WORK, TBM_SETPOS, TRUE, val);
-          // スピンコントロールの内部状態も同期 (これが抜けているとボタンを押した時に値が飛びます)
-          // ただし、無限ループ防止のため、現在値と違う場合のみセットしても良いですが、
-          // UDM_SETPOS32 は賢いのでそのまま呼んでも大抵大丈夫です。
-          if (SendMessage(GetDlgItem(hDlg, IDC_SPIN_WORK), UDM_GETPOS32, 0, 0) != val) {
-             SendDlgItemMessage(hDlg, IDC_SPIN_WORK, UDM_SETPOS32, 0, val);
-          }
-        } else if (id == IDC_EDIT_BREAK) {
-          SendDlgItemMessage(hDlg, IDC_SLIDER_BREAK, TBM_SETPOS, TRUE, val);
-          if (SendMessage(GetDlgItem(hDlg, IDC_SPIN_BREAK), UDM_GETPOS32, 0, 0) != val) {
-             SendDlgItemMessage(hDlg, IDC_SPIN_BREAK, UDM_SETPOS32, 0, val);
-          }
-        }
-      }
-    }
-
-    if (LOWORD(wParam) == IDOK)
-    {
-      // OKボタン処理
-      g_settingWorkMin = GetDlgItemInt(hDlg, IDC_EDIT_WORK, NULL, FALSE);
-      g_settingBreakMin = GetDlgItemInt(hDlg, IDC_EDIT_BREAK, NULL, FALSE);
-
-      // 範囲チェック
-      if (g_settingWorkMin < 1) g_settingWorkMin = 1;
-      if (g_settingBreakMin < 1) g_settingBreakMin = 1;
-      if (g_settingWorkMin > 60) g_settingWorkMin = 60;
-      if (g_settingBreakMin > 60) g_settingBreakMin = 60;
-
-      EndDialog(hDlg, LOWORD(wParam));
-      return (INT_PTR)TRUE;
-    }
-    else if (LOWORD(wParam) == IDCANCEL)
-    {
-      EndDialog(hDlg, LOWORD(wParam));
-      return (INT_PTR)TRUE;
-    }
-    break;
-  }
-  return (INT_PTR)FALSE;
-}
-
-/// --- Aboutダイアログ用プロシージャ ---
-INT_PTR CALLBACK AboutDlgProc(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
-{
-  switch (message)
-  {
-  case WM_COMMAND:
-    switch (LOWORD(wParam))
-    {
-    case IDOK:
-    case IDCANCEL:
-      EndDialog(hDlg, LOWORD(wParam));
-      return (INT_PTR)TRUE;
-    }
-    break;
-  }
-  return (INT_PTR)FALSE;
-}
-
-// 画面表示を更新する関数
-void UpdateDisplay(HWND hwnd)
-{
-  char szTime[16];
-  char szStatus[64];
-
-  wsprintf(szTime, "%02d:%02d", g_timeLeft / 60, g_timeLeft % 60);
-  SetWindowText(hStaticTime, szTime);
-
-  // プログレスバー更新
-  SendMessage(hProgressBar, PBM_SETRANGE, 0, MAKELPARAM(0, g_totalTime));
-  SendMessage(hProgressBar, PBM_SETPOS, g_timeLeft, 0);
-
-  // 状態テキストの更新
-  if (g_isWorking) {
-    wsprintf(szStatus, "作業中！（%d分間）", g_settingWorkMin);
-  } else {
-    wsprintf(szStatus, "休憩時間（%d分間）", g_settingBreakMin);
-  }
-  SetWindowText(hStaticStatus, szStatus);
-}
-
-// --- ウィンドウプロシージャ ---
-LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
-{
-  switch (msg) {
-  case WM_CREATE:
-    {
-      INITCOMMONCONTROLSEX icex;
-      icex.dwSize = sizeof(INITCOMMONCONTROLSEX);
-      icex.dwICC = ICC_PROGRESS_CLASS | ICC_BAR_CLASSES | ICC_UPDOWN_CLASS; // クラス追加
-      InitCommonControlsEx(&icex);
-
-      hFontTime = CreateFont(
-          60, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
-          ANSI_CHARSET,
-          OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
-          DEFAULT_QUALITY, DEFAULT_PITCH | FF_SWISS, "Arial"
-          );
-
-      hStaticStatus = CreateWindow("STATIC", "",
-          WS_CHILD | WS_VISIBLE | SS_CENTER,
-          10, 10, 260, 20, hwnd, NULL, hInst, NULL);
-
-      hStaticTime = CreateWindow("STATIC", "00:00",
-          WS_CHILD | WS_VISIBLE | SS_CENTER,
-          10, 40, 260, 70, hwnd, NULL, hInst, NULL);
-      SendMessage(hStaticTime, WM_SETFONT, (WPARAM)hFontTime, TRUE);
-
-      hProgressBar = CreateWindow(PROGRESS_CLASS, NULL,
-          WS_CHILD | WS_VISIBLE | PBS_SMOOTH,
-          20, 120, 240, 20, hwnd, (HMENU)ID_PBAR, hInst, NULL);
-
-      hBtnStart = CreateWindow("BUTTON", "開始",
-          WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
-          90, 160, 100, 30, hwnd, (HMENU)ID_BTN_START, hInst, NULL);
-
-      UpdateDisplay(hwnd);
-    }
-    break;
-
-  case WM_COMMAND:
-    switch (LOWORD(wParam)) {
-    case IDM_EXIT:
-      SendMessage(hwnd, WM_CLOSE, 0, 0);
-      break;
-    case IDM_SETTINGS:
-      // モーダルダイアログを開く
-      if (DialogBox(hInst, MAKEINTRESOURCE(IDD_SETTINGS), hwnd, SettingsDlgProc) == IDOK)
-      {
-        // OKで戻ってきたら、即座に時間を反映してリセット
-        KillTimer(hwnd, ID_TIMER);
-        g_isRunning = FALSE;
-        SetWindowText(hBtnStart, "開始");
-
-        g_isWorking = TRUE;
-        g_totalTime = g_settingWorkMin * 60;
-        g_timeLeft = g_totalTime;
-
-        UpdateDisplay(hwnd);
-        MessageBox(hwnd, "設定を更新し、タイマーをリセットしました。", "設定変更", MB_OK);
-      }
-      break;
-    case IDM_ABOUT:
-      DialogBox(hInst, MAKEINTRESOURCE(IDD_ABOUT), hwnd, AboutDlgProc);
-      break;
-    case ID_BTN_START:
-      if (g_isRunning) {
-        KillTimer(hwnd, ID_TIMER);
-        SetWindowText(hBtnStart, "再開");
-        g_isRunning = FALSE;
-      } else {
-        SetTimer(hwnd, ID_TIMER, 1000, NULL);
-        SetWindowText(hBtnStart, "一時停止");
-        g_isRunning = TRUE;
-      }
-      break;
-    }
-    break;
-
-  case WM_TIMER:
-    if (g_timeLeft > 0) {
-      g_timeLeft--;
-      UpdateDisplay(hwnd);
-    } else {
-      KillTimer(hwnd, ID_TIMER);
-      g_isRunning = FALSE;
-      SetWindowText(hBtnStart, "開始");
-      MessageBeep(MB_ICONASTERISK);
-
-      if (g_isWorking) {
-        MessageBox(hwnd, "よく頑張った。休息の時間だ！", "作業時間終了", MB_OK | MB_TOPMOST);
-        g_isWorking = FALSE;
-        g_totalTime = g_settingBreakMin * 60;
-        g_timeLeft = g_totalTime;
-      } else {
-        MessageBox(hwnd, "休息終わり、作業に戻れ！", "休憩時間終了", MB_OK | MB_TOPMOST);
-        g_isWorking = TRUE;
-        g_totalTime = g_settingWorkMin * 60;
-        g_timeLeft = g_totalTime;
-      }
-      UpdateDisplay(hwnd);
-    }
-    break;
-
-  case WM_DESTROY:
-    DeleteObject(hFontTime);
-    PostQuitMessage(0);
-    break;
-
-  default:
-    return DefWindowProc(hwnd, msg, wParam, lParam);
-  }
-  return 0;
-}
+void UpdateView();
+INT_PTR CALLBACK SettingsDlgProc(HWND hdlg, UINT msg, WPARAM wParam, LPARAM lParam);
+INT_PTR CALLBACK AboutDlgProc(HWND hdlg, UINT msg, WPARAM wParam, LPARAM lParam);
+LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
 // --- エントリポイント ---
-int WINAPI WinMain(HINSTANCE hInstance,
-                   HINSTANCE hPrevInstance,
-                   LPSTR     lpCmdLine,
-                   int       nCmdShow)
+int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow)
 {
   // --- 初期化 ---
   const char CLASS_NAME[] = "TimerWindowClass";
   hInst = hInstance;
+  len_work   = LEN_WORK_DEFAULT;
+  len_break  = LEN_BREAK_DEFAULT;
+  time_left  = len_work * 60;
+  isWorking  = TRUE;
+  isRunning  = FALSE;
 
   // ウィンドウクラスを作る
   WNDCLASSEX wc = {0};
@@ -304,7 +55,8 @@ int WINAPI WinMain(HINSTANCE hInstance,
   wc.hInstance = hInstance;
   wc.hCursor = LoadCursor(NULL, IDC_ARROW);
   wc.lpszMenuName = MAKEINTRESOURCE(IDR_MENU);
-  RegisterClassEx(&wc);  // ウィンドウクラスを登録
+  // ウィンドウクラスを登録
+  RegisterClassEx(&wc);
 
   // ウィンドウクラスを実体化
   HWND hwnd = CreateWindow(
@@ -328,8 +80,238 @@ int WINAPI WinMain(HINSTANCE hInstance,
   return (int)msg.wParam;
 }
 
-/*
-  CHAR tmp[512] = "";
-  wsprintf(tmp, "hInst_local:%d, hInst:%d",hInst_local,hInst);
-  MessageBox(hwnd, tmp, "debug", MB_OK);
-  */
+// --- メインウィンドウプロシージャ ---
+LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
+{
+  switch (msg)
+  {
+  // ウィンドウ作成時
+  case WM_CREATE:
+    // フォントの作成
+    // ボタン・ステータス表示用フォント
+    hFontMain = CreateFont(
+        20,                       // 大きさ
+        0,0,0,
+        FW_DONTCARE,              // 太さ 通常
+        0,0,0,0,0,0,0,
+        DEFAULT_PITCH | FF_SWISS, // サンセリフ
+        "MS UI Gothic"            // フォント名
+        );
+    // 時間表示用フォント
+    hFontTime = CreateFont(
+        60,                       // 大きさ
+        0,0,0,
+        FW_BOLD,                  // 太さ 太字
+        0,0,0,0,0,0,0,
+        FIXED_PITCH | FF_SWISS,   // 固定幅のサンセリフ
+        "Arial"                   // フォント名
+        );
+
+    // コモンコントロールの初期化
+    //  プログレスバーとアップダウン
+    INITCOMMONCONTROLSEX icex;
+    icex.dwSize = sizeof(INITCOMMONCONTROLSEX);
+    icex.dwICC = ICC_PROGRESS_CLASS | ICC_BAR_CLASSES | ICC_UPDOWN_CLASS;
+    InitCommonControlsEx(&icex);
+
+    // UI要素の作成
+    // ステータス表示
+    hStaticStatus = CreateWindow("STATIC", "",
+        WS_CHILD | WS_VISIBLE | SS_CENTER,
+        20, 10, 260, 25, hwnd, NULL, hInst, NULL);
+    SendMessage(hStaticStatus, WM_SETFONT, (WPARAM)hFontMain, TRUE);
+    // 時間表示
+    hStaticTime = CreateWindow("STATIC", "00:00",
+        WS_CHILD | WS_VISIBLE | SS_CENTER,
+        20, 40, 260, 70, hwnd, NULL, hInst, NULL);
+    SendMessage(hStaticTime, WM_SETFONT, (WPARAM)hFontTime, TRUE);
+    // プログレスバー
+    hProgressBar = CreateWindow(PROGRESS_CLASS, NULL,
+        WS_CHILD | WS_VISIBLE | PBS_SMOOTH,
+        30, 120, 240, 20, hwnd, (HMENU)ID_PBAR, hInst, NULL);
+    // 開始・一時停止ボタン
+    hBtnStart = CreateWindow("BUTTON", "",
+        WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
+        100, 160, 100, 30, hwnd, (HMENU)ID_BTN_START, hInst, NULL);
+    SendMessage(hBtnStart, WM_SETFONT, (WPARAM)hFontMain, TRUE);
+
+    UpdateView();
+    break;
+
+  // 操作一般（メニュー、ボタン）
+  case WM_COMMAND:
+    switch (LOWORD(wParam))
+    {
+
+    // メニューから"終了"が押された時
+    case IDM_EXIT:
+      SendMessage(hwnd, WM_CLOSE, 0, 0);
+      break;
+
+    // メニューから"設定"が押された時
+    case IDM_SETTINGS:
+      // 設定ダイアログを開く
+      if (DialogBox(hInst, MAKEINTRESOURCE(IDD_SETTINGS), hwnd, SettingsDlgProc) == IDOK)
+      {
+        // OKで戻ってきたら、時間を反映してリセット
+        KillTimer(hwnd, ID_TIMER);
+        time_left = len_work * 60;
+        isRunning = FALSE;
+        isWorking = TRUE;
+        UpdateView();
+        MessageBox(hwnd, "設定を更新し、タイマーをリセットしました。", "設定変更完了", MB_OK);
+      }
+      break;
+
+    // メニューから"このソフトについて"が押された時
+    case IDM_ABOUT:
+      DialogBox(hInst, MAKEINTRESOURCE(IDD_ABOUT), hwnd, AboutDlgProc);
+      break;
+
+    // 開始・一時停止・再開ボタンが押された時
+    case ID_BTN_START:
+      if (isRunning)  KillTimer(hwnd, ID_TIMER);            // タイマーを削除
+      else            SetTimer(hwnd, ID_TIMER, 1000, NULL); // 1秒タイマーをセット
+      isRunning = !isRunning;
+      UpdateView();
+      break;
+
+    }
+    break;
+
+  // 1秒ごとのタイマーイベント
+  case WM_TIMER:
+    // カウントダウン終了時
+    if (--time_left <= 0)
+    {
+      UpdateView();
+      KillTimer(hwnd, ID_TIMER);
+      MessageBeep(MB_ICONASTERISK);
+      MessageBox(hwnd, (isWorking ? "よく頑張った。休息の時間だ！" : "休憩終わり。作業に戻れ！"),
+                 "時間です", MB_OK | MB_TOPMOST);
+
+      isWorking = !isWorking;
+      time_left = (isWorking ? len_work : len_break) * 60;
+      SetTimer(hwnd, ID_TIMER, 1000, NULL); // 1秒タイマーをセット
+    }
+    UpdateView();
+    break;
+
+  // ウィンドウ破棄時
+  case WM_DESTROY:
+    PostQuitMessage(0);
+  }
+
+  return DefWindowProc(hwnd, msg, wParam, lParam);
+}
+
+/// --- 設定ダイアログ用プロシージャ ---
+INT_PTR CALLBACK SettingsDlgProc(HWND hdlg, UINT msg, WPARAM wParam, LPARAM lParam)
+{
+  switch (msg)
+  {
+  // ダイアログ初期化
+  case WM_INITDIALOG:
+    // スライダーの範囲設定
+    SendDlgItemMessage(hdlg, IDC_SLIDER_WORK, TBM_SETRANGE, TRUE, MAKELPARAM(1, 60));
+    SendDlgItemMessage(hdlg, IDC_SLIDER_BREAK, TBM_SETRANGE, TRUE, MAKELPARAM(1, 60));
+
+    // アップダウンの範囲設定
+    SendDlgItemMessage(hdlg, IDC_SPIN_WORK, UDM_SETRANGE32, 1, 60);
+    SendDlgItemMessage(hdlg, IDC_SPIN_BREAK, UDM_SETRANGE32, 1, 60);
+
+    // エディットボックスとアップダウンを結びつける
+    SendDlgItemMessage(hdlg, IDC_SPIN_WORK, UDM_SETBUDDY, (WPARAM)GetDlgItem(hdlg, IDC_EDIT_WORK), 0);
+    SendDlgItemMessage(hdlg, IDC_SPIN_BREAK, UDM_SETBUDDY, (WPARAM)GetDlgItem(hdlg, IDC_EDIT_BREAK), 0);
+
+    // アップダウンに値をセット（自動でエディットも更新される）
+    SendDlgItemMessage(hdlg, IDC_SPIN_WORK, UDM_SETPOS32, 0, len_work);
+    SendDlgItemMessage(hdlg, IDC_SPIN_BREAK, UDM_SETPOS32, 0, len_break);
+
+    // スライダーの位置合わせ
+    SendDlgItemMessage(hdlg, IDC_SLIDER_WORK, TBM_SETPOS, TRUE, len_work);
+    SendDlgItemMessage(hdlg, IDC_SLIDER_BREAK, TBM_SETPOS, TRUE, len_break);
+
+    return (INT_PTR)TRUE;
+
+  // スライダーが動かされた時の処理
+  case WM_HSCROLL:
+    // スライダーの値をアップダウンに渡す
+    if ((HWND)lParam == GetDlgItem(hdlg, IDC_SLIDER_WORK))
+    {
+      int pos = SendMessage((HWND)lParam, TBM_GETPOS, 0, 0);
+      SendDlgItemMessage(hdlg, IDC_SPIN_WORK, UDM_SETPOS32, 0, pos);
+    }
+    else if ((HWND)lParam == GetDlgItem(hdlg, IDC_SLIDER_BREAK))
+    {
+      int pos = SendMessage((HWND)lParam, TBM_GETPOS, 0, 0);
+      SendDlgItemMessage(hdlg, IDC_SPIN_BREAK, UDM_SETPOS32, 0, pos);
+    }
+    return (INT_PTR)TRUE;
+
+  // 操作一般（メニュー、ボタン）
+  case WM_COMMAND:
+    // エディットボックスがキーボード入力などで書き換えられたら
+    if (HIWORD(wParam) == EN_CHANGE)
+    {
+      // 変更された要素のID
+      int id = LOWORD(wParam);
+      // 変更された内容
+      int val = GetDlgItemInt(hdlg, id, NULL, FALSE);
+
+      // エディットボックス -> スライダー 同期
+      if (id == IDC_EDIT_WORK)
+        SendDlgItemMessage(hdlg, IDC_SLIDER_WORK, TBM_SETPOS, TRUE, val);
+      else if (id == IDC_EDIT_BREAK)
+        SendDlgItemMessage(hdlg, IDC_SLIDER_BREAK, TBM_SETPOS, TRUE, val);
+    }
+
+    // OK・キャンセルボタン処理
+    switch (LOWORD(wParam))
+    {
+    case IDOK:
+      // OKなら値を更新
+      len_work = GetDlgItemInt(hdlg, IDC_EDIT_WORK, NULL, FALSE);
+      len_break = GetDlgItemInt(hdlg, IDC_EDIT_BREAK, NULL, FALSE);
+    case IDCANCEL:
+      // OK・キャンセルでダイアログ終了
+      EndDialog(hdlg, LOWORD(wParam));
+      return (INT_PTR)TRUE;
+    }
+
+  }
+  return (INT_PTR)FALSE;
+}
+
+/// --- Aboutダイアログ用プロシージャ ---
+INT_PTR CALLBACK AboutDlgProc(HWND hdlg, UINT msg, WPARAM wParam, LPARAM lParam)
+{
+  if (msg == WM_COMMAND && LOWORD(wParam) == IDCANCEL)
+  {
+    // 閉じるボタン or ESCキーでダイアログ終了
+    EndDialog(hdlg, LOWORD(wParam));
+    return (INT_PTR)TRUE;
+  }
+  return (INT_PTR)FALSE;
+}
+
+// メインウィンドウの表示を更新
+void UpdateView()
+{
+  char szTmp[64];
+  int current_total_sec = (isWorking ? len_work : len_break) * 60;
+  BOOL isInit = (current_total_sec == time_left);
+  // 時間テキストの更新
+  wsprintf(szTmp, "%02d:%02d", time_left / 60, time_left % 60);
+  SetWindowText(hStaticTime, szTmp);
+  // ステータステキストの更新
+  wsprintf(szTmp, "%s（%d分間）%s", isWorking ? "作業" : "休憩",
+                                    isWorking ? len_work : len_break,
+                                    isRunning ? "" : "[PAUSE]");
+  SetWindowText(hStaticStatus, szTmp);
+  // ボタンテキストの更新
+  SetWindowText(hBtnStart, isRunning ? "一時停止" : (isInit ? "開始" : "再開"));
+  // プログレスバーの更新
+  SendMessage(hProgressBar, PBM_SETRANGE32, 0, current_total_sec);
+  SendMessage(hProgressBar, PBM_SETPOS, time_left, 0);
+}
