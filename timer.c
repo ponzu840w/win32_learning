@@ -85,7 +85,9 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
         20,                       // 大きさ
         0,0,0,
         FW_DONTCARE,              // 太さ 通常
-        0,0,0,0,0,0,0,
+        0,0,0,
+        SHIFTJIS_CHARSET,         // 文字コード指定
+        0,0,0,
         DEFAULT_PITCH | FF_SWISS, // サンセリフ
         "MS UI Gothic"            // フォント名
         );
