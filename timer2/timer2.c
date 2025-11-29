@@ -8,8 +8,8 @@
 #define ID_PBAR 102
 
 // デフォルト値
-#define LEN_WORK_DEFAULT  25;
-#define LEN_BREAK_DEFAULT  5;
+#define LEN_WORK_DEFAULT  25
+#define LEN_BREAK_DEFAULT  5
 
 // グローバル変数
 int len_work;           // 作業時間 デフォルト 25(分)
