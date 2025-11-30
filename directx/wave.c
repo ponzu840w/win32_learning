@@ -191,7 +191,7 @@ void Render() {
         IDirect3DDevice9_SetFVF(g_pd3dDevice, D3DFVF_CUSTOMVERTEX);
         
         // ワイヤーフレームにするなら以下をアンコメント
-        // IDirect3DDevice9_SetRenderState(g_pd3dDevice, D3DRS_FILLMODE, D3DFILL_WIREFRAME); 
+        IDirect3DDevice9_SetRenderState(g_pd3dDevice, D3DRS_FILLMODE, D3DFILL_WIREFRAME); 
 
         IDirect3DDevice9_DrawPrimitive(g_pd3dDevice, D3DPT_TRIANGLELIST, 0, GRID_SIZE * GRID_SIZE * 2);
 

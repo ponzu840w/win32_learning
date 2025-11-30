@@ -1,27 +1,29 @@
 #include <windows.h>
 #include <stdio.h>
 #include <math.h>
-#include <stdlib.h> // for rand
+#include <stdlib.h>
+#include <time.h> // for time
 
-#define COBJMACROS
-#include "d3d9.h"
-
-// --- 設定 ---
-#define SCREEN_WIDTH  1024
-#define SCREEN_HEIGHT 768
-#define GRID_SIZE     64      // グリッドの分割数
-#define GRID_SCALE    1.0f    // グリッドの間隔
-#define WAVE_SPEED    2.5f    // 波の速さ
-
+// --- TCC互換性用 ---
 #define sqrtf(x) ((float)sqrt((double)(x)))
 #define sinf(x)  ((float)sin((double)(x)))
 #define cosf(x)  ((float)cos((double)(x)))
 #define tanf(x)  ((float)tan((double)(x)))
+#define acosf(x) ((float)acos((double)(x)))
+// ------------------
 
-// 算術用定数
+#define COBJMACROS
+#include "d3d9.h"
+
+// 設定
+#define SCREEN_WIDTH  1024
+#define SCREEN_HEIGHT 768
+//#define GRID_SIZE     80      // 解像度アップ
+//#define GRID_SCALE    0.8f    
+#define GRID_SIZE     128     // メッシュをさらに細かくする（CPU負荷は増えます）
+#define GRID_SCALE    0.6f    // サイズを変えないようにスケールを調整
 #define PI 3.14159265f
 
-// 頂点構造体 (テクスチャ座標 tu, tv を追加)
 typedef struct {
     FLOAT x, y, z;
     FLOAT nx, ny, nz;
@@ -31,15 +33,13 @@ typedef struct {
 
 #define D3DFVF_CUSTOMVERTEX (D3DFVF_XYZ | D3DFVF_NORMAL | D3DFVF_DIFFUSE | D3DFVF_TEX1)
 
-// グローバル変数
+// グローバル
 LPDIRECT3D9             g_pD3D = NULL;
 LPDIRECT3DDEVICE9       g_pd3dDevice = NULL;
 LPDIRECT3DVERTEXBUFFER9 g_pVB = NULL;
-LPDIRECT3DTEXTURE9      g_pTexWater = NULL; // 水面テクスチャ
-LPDIRECT3DTEXTURE9      g_pTexSky = NULL;   // 空テクスチャ（背景用）
+LPDIRECT3DTEXTURE9      g_pTexWater = NULL;
 
-// --- 数学ヘルパー (D3DXを使わない実装) ---
-
+// 数学ヘルパー
 typedef struct { float x, y, z; } Vec3;
 
 void Vec3Normalize(Vec3* v) {
@@ -60,7 +60,6 @@ void MatrixIdentity(D3DMATRIX* m) {
     m->m[0][0] = m->m[1][1] = m->m[2][2] = m->m[3][3] = 1.0f;
 }
 
-// 簡易LookAt
 void MatrixLookAtLH(D3DMATRIX* out, const Vec3* eye, const Vec3* at, const Vec3* up) {
     Vec3 zaxis = { at->x - eye->x, at->y - eye->y, at->z - eye->z };
     Vec3Normalize(&zaxis);
@@ -77,7 +76,6 @@ void MatrixLookAtLH(D3DMATRIX* out, const Vec3* eye, const Vec3* at, const Vec3*
     out->m[3][2] = -(zaxis.x * eye->x + zaxis.y * eye->y + zaxis.z * eye->z);
 }
 
-// 簡易Perspective
 void MatrixPerspectiveFovLH(D3DMATRIX* out, float fovy, float aspect, float zn, float zf) {
     MatrixIdentity(out);
     float yScale = 1.0f / tanf(fovy / 2.0f);
@@ -90,63 +88,60 @@ void MatrixPerspectiveFovLH(D3DMATRIX* out, float fovy, float aspect, float zn, 
     out->m[3][3] = 0.0f;
 }
 
-// --- プロシージャルテクスチャ生成 ---
-
-// ノイズ風の水を生成
-void CreateProceduralWaterTexture() {
-    if (FAILED(IDirect3DDevice9_CreateTexture(g_pd3dDevice, 256, 256, 1, 0, D3DFMT_X8R8G8B8, D3DPOOL_MANAGED, &g_pTexWater, NULL))) return;
+// --- 改良版テクスチャ生成: スムースノイズ ---
+// ランダムな点を打った後、ぼかし処理をして自然な模様を作る
+void CreateRealisticWaterTexture() {
+    int size = 256;
+    if (FAILED(IDirect3DDevice9_CreateTexture(g_pd3dDevice, size, size, 1, 0, D3DFMT_X8R8G8B8, D3DPOOL_MANAGED, &g_pTexWater, NULL))) return;
     
+    // 一時バッファ
+    unsigned char* raw = (unsigned char*)malloc(size * size);
+    srand((unsigned int)time(NULL));
+
+    // 1. ノイズ生成
+    for(int i=0; i<size*size; i++) raw[i] = rand() % 255;
+
+    // 2. ぼかし処理 (スムージング) を数回繰り返す
+    unsigned char* temp = (unsigned char*)malloc(size * size);
+    for(int pass=0; pass<4; pass++) {
+        for(int y=0; y<size; y++) {
+            for(int x=0; x<size; x++) {
+                int sum = 0;
+                int count = 0;
+                // 周囲3x3の平均を取る
+                for(int dy=-1; dy<=1; dy++) {
+                    for(int dx=-1; dx<=1; dx++) {
+                        int ny = (y + dy + size) % size; // ラップアラウンド
+                        int nx = (x + dx + size) % size;
+                        sum += raw[ny*size + nx];
+                        count++;
+                    }
+                }
+                temp[y*size+x] = sum / count;
+            }
+        }
+        memcpy(raw, temp, size*size); // 結果を戻す
+    }
+    free(temp);
+
+    // 3. テクスチャに書き込み
     D3DLOCKED_RECT lr;
     if (SUCCEEDED(IDirect3DTexture9_LockRect(g_pTexWater, 0, &lr, NULL, 0))) {
         DWORD* pData = (DWORD*)lr.pBits;
-        for (int y = 0; y < 256; y++) {
-            for (int x = 0; x < 256; x++) {
-                // 簡易ノイズ生成
-                int n = (x * 3 + y * 57) ^ (x * y);
-                int noise = (n & 0xFF);
-                // 青〜深緑のグラデーションにノイズを混ぜる
-                int r = 10 + noise / 8;
-                int g = 40 + noise / 4;
-                int b = 100 + noise / 2;
-                pData[y * 256 + x] = D3DCOLOR_XRGB(r, g, b);
-            }
+        for (int i = 0; i < size * size; i++) {
+            int val = raw[i];
+            // 色味: 深い青ベースに、ノイズ成分をハイライトとして加算
+            // Base: R:0, G:30, B:60
+            int r = val / 4;        // 少しノイズ
+            int g = 30 + val / 2;   // 緑成分
+            int b = 60 + val / 1.5; // 青成分
+            if(r>255) r=255; if(g>255) g=255; if(b>255) b=255;
+            pData[i] = D3DCOLOR_XRGB(r, g, b);
         }
         IDirect3DTexture9_UnlockRect(g_pTexWater, 0);
     }
+    free(raw);
 }
-
-// 夕焼け空のグラデーションを生成
-void CreateProceduralSkyTexture() {
-    if (FAILED(IDirect3DDevice9_CreateTexture(g_pd3dDevice, 256, 256, 1, 0, D3DFMT_X8R8G8B8, D3DPOOL_MANAGED, &g_pTexSky, NULL))) return;
-
-    D3DLOCKED_RECT lr;
-    if (SUCCEEDED(IDirect3DTexture9_LockRect(g_pTexSky, 0, &lr, NULL, 0))) {
-        DWORD* pData = (DWORD*)lr.pBits;
-        for (int y = 0; y < 256; y++) {
-            // 上(0)から下(255)へ
-            float t = y / 255.0f;
-            // 濃い青 -> 紫 -> オレンジ -> 黄色
-            int r, g, b;
-            if (t < 0.5f) { // 上空：青〜紫
-                r = (int)(20 + t * 2 * 100);
-                g = (int)(20 + t * 2 * 20);
-                b = (int)(80 + t * 2 * 20);
-            } else { // 地平線近く：紫〜オレンジ
-                float t2 = (t - 0.5f) * 2.0f;
-                r = (int)(120 + t2 * 135); // Max 255
-                g = (int)(40 + t2 * 100);
-                b = (int)(100 - t2 * 80);
-            }
-            DWORD col = D3DCOLOR_XRGB(r, g, b);
-            for (int x = 0; x < 256; x++) {
-                pData[y * 256 + x] = col;
-            }
-        }
-        IDirect3DTexture9_UnlockRect(g_pTexSky, 0);
-    }
-}
-
-// --- DirectX初期化 ---
 
 HRESULT InitD3D(HWND hWnd) {
     if (NULL == (g_pD3D = Direct3DCreate9(D3D_SDK_VERSION))) return E_FAIL;
@@ -162,41 +157,36 @@ HRESULT InitD3D(HWND hWnd) {
                                       D3DCREATE_SOFTWARE_VERTEXPROCESSING,
                                       &d3dpp, &g_pd3dDevice))) return E_FAIL;
 
-    // --- レンダリングステート設定 ---
-    IDirect3DDevice9_SetRenderState(g_pd3dDevice, D3DRS_CULLMODE, D3DCULL_NONE); // 両面描画
+    IDirect3DDevice9_SetRenderState(g_pd3dDevice, D3DRS_CULLMODE, D3DCULL_NONE);
     IDirect3DDevice9_SetRenderState(g_pd3dDevice, D3DRS_ZENABLE, TRUE);
     
-    // ライティング有効
+    // ライティング & マテリアル (重要)
     IDirect3DDevice9_SetRenderState(g_pd3dDevice, D3DRS_LIGHTING, TRUE);
-    IDirect3DDevice9_SetRenderState(g_pd3dDevice, D3DRS_SPECULARENABLE, TRUE); // 鏡面反射ON
-    IDirect3DDevice9_SetRenderState(g_pd3dDevice, D3DRS_AMBIENT, 0x00404060);  // 環境光（少し青み）
+    IDirect3DDevice9_SetRenderState(g_pd3dDevice, D3DRS_SPECULARENABLE, TRUE); 
+    IDirect3DDevice9_SetRenderState(g_pd3dDevice, D3DRS_AMBIENT, 0x00101020); // 暗めの環境光
 
-    // フォグ（空気遠近）設定：地平線の継ぎ目を隠す
-    float fogStart = 20.0f, fogEnd = 80.0f;
-    DWORD fogColor = 0x00603050; // 夕暮れの紫っぽい色
+    // フォグ設定
+    float fogStart = 20.0f, fogEnd = 90.0f;
+    DWORD fogColor = 0x00100510; // 非常に暗い紫（夜の海）
     IDirect3DDevice9_SetRenderState(g_pd3dDevice, D3DRS_FOGENABLE, TRUE);
     IDirect3DDevice9_SetRenderState(g_pd3dDevice, D3DRS_FOGCOLOR, fogColor);
     IDirect3DDevice9_SetRenderState(g_pd3dDevice, D3DRS_FOGTABLEMODE, D3DFOG_LINEAR);
     IDirect3DDevice9_SetRenderState(g_pd3dDevice, D3DRS_FOGSTART, *(DWORD*)(&fogStart));
     IDirect3DDevice9_SetRenderState(g_pd3dDevice, D3DRS_FOGEND,   *(DWORD*)(&fogEnd));
 
-    // マテリアル設定（水用）
+    // マテリアル: 鋭い反射を作る
     D3DMATERIAL9 mtrl;
     ZeroMemory(&mtrl, sizeof(mtrl));
-    mtrl.Diffuse.r = mtrl.Ambient.r = 0.8f;
-    mtrl.Diffuse.g = mtrl.Ambient.g = 0.8f;
-    mtrl.Diffuse.b = mtrl.Ambient.b = 1.0f;
-    mtrl.Diffuse.a = mtrl.Ambient.a = 1.0f;
-    // 鋭いハイライト（濡れた質感）
-    mtrl.Specular.r = 1.0f; mtrl.Specular.g = 1.0f; mtrl.Specular.b = 1.0f; mtrl.Specular.a = 1.0f;
-    mtrl.Power = 50.0f; 
+    mtrl.Diffuse.r = 0.6f; mtrl.Diffuse.g = 0.8f; mtrl.Diffuse.b = 1.0f; mtrl.Diffuse.a = 1.0f;
+    mtrl.Ambient.r = 0.2f; mtrl.Ambient.g = 0.2f; mtrl.Ambient.b = 0.3f; mtrl.Ambient.a = 1.0f;
+    // Specularを白く、強く
+    mtrl.Specular.r = 1.0f; mtrl.Specular.g = 0.9f; mtrl.Specular.b = 0.8f; mtrl.Specular.a = 1.0f;
+    // mtrl.Power = 60.0f; // これだと鋭すぎてカクカクする
+    mtrl.Power = 20.0f;    // 値を下げて、光をボワッと広げる
     IDirect3DDevice9_SetMaterial(g_pd3dDevice, &mtrl);
 
-    // テクスチャ生成
-    CreateProceduralWaterTexture();
-    CreateProceduralSkyTexture();
+    CreateRealisticWaterTexture();
 
-    // 頂点バッファ確保
     int numVerts = GRID_SIZE * GRID_SIZE * 6;
     if (FAILED(IDirect3DDevice9_CreateVertexBuffer(g_pd3dDevice, numVerts * sizeof(CUSTOMVERTEX),
                                                   0, D3DFVF_CUSTOMVERTEX,
@@ -204,71 +194,61 @@ HRESULT InitD3D(HWND hWnd) {
     return S_OK;
 }
 
-// --- 描画ループ ---
 float g_Time = 0.0f;
 
-// 波の高さ計算関数
+// 波形関数改良
 float GetWaveHeight(float x, float z, float t) {
-    // 複数の波を重ねる（複雑さを出す）
     float y = 0.0f;
-    y += sinf(x * 0.5f + t * 1.0f) * 0.5f;
-    y += sinf(z * 0.4f + t * 0.8f) * 0.5f;
-    y += sinf((x + z) * 0.2f + t * 1.5f) * 0.3f; // うねり
-    y += sinf(x * 1.0f + t * 2.0f) * 0.1f;       // 細かい波
-    return y * 1.5f;
+    // 大きなうねり
+    y += sinf(x * 0.2f + t * 0.8f) * 1.0f;
+    // 交差する波
+    y += sinf((x * 0.5f + z * 0.4f) + t * 1.1f) * 0.6f;
+    // 細かい尖った波 (cosの絶対値に近い挙動などで尖らせる)
+    float choppy = sinf(x * 0.7f - z * 0.6f + t * 2.0f);
+    y += choppy * choppy * 0.4f; 
+    return y * 0.8f;
 }
 
 void Render() {
     if (NULL == g_pd3dDevice) return;
 
-    // 背景はフォグ色に合わせてクリア
-    IDirect3DDevice9_Clear(g_pd3dDevice, 0, NULL, D3DCLEAR_TARGET | D3DCLEAR_ZBUFFER, 0x00603050, 1.0f, 0);
+    // 背景クリア（フォグ色と同じ）
+    IDirect3DDevice9_Clear(g_pd3dDevice, 0, NULL, D3DCLEAR_TARGET | D3DCLEAR_ZBUFFER, 0x00100510, 1.0f, 0);
 
     if (SUCCEEDED(IDirect3DDevice9_BeginScene(g_pd3dDevice))) {
-        g_Time += 0.02f;
+        g_Time += 0.015f;
 
-        // --- 1. 背景（空）の描画 ---
-        // 実際にはZバッファを切って奥に描画する板
-        IDirect3DDevice9_SetRenderState(g_pd3dDevice, D3DRS_ZWRITEENABLE, FALSE);
-        IDirect3DDevice9_SetRenderState(g_pd3dDevice, D3DRS_FOGENABLE, FALSE); // 空には霧をかけない
-        IDirect3DDevice9_SetTexture(g_pd3dDevice, 0, g_pTexSky);
-        
-        // 単位行列で画面いっぱいに描画（直交投影の代わり）
-        // 簡易的にカメラの奥に巨大な壁を置く
-        // (本来はSkyBoxが良いがコード量削減のため板で代用)
-        // ここでは実装簡略化のため、空描画は省略しフォグとClear色で表現するプランに切り替え
-        // ※コードが長くなりすぎるため。テクスチャ作ったが、今回は水面への反射イメージとして使う。
-
-        // --- 2. ライト設定（夕日） ---
-        IDirect3DDevice9_SetRenderState(g_pd3dDevice, D3DRS_ZWRITEENABLE, TRUE);
-        IDirect3DDevice9_SetRenderState(g_pd3dDevice, D3DRS_FOGENABLE, TRUE);
-
+        // --- ライティング ---
         D3DLIGHT9 light;
         ZeroMemory(&light, sizeof(light));
         light.Type = D3DLIGHT_DIRECTIONAL;
-        // 夕焼け色（オレンジ）
-        light.Diffuse.r = 1.0f; light.Diffuse.g = 0.6f; light.Diffuse.b = 0.2f;
-        light.Specular.r = 1.0f; light.Specular.g = 0.8f; light.Specular.b = 0.6f; // 反射光
-        // 光の向き（低空から）
-        Vec3 dir = { 1.0f, -0.3f, 1.0f }; 
+        light.Diffuse.r = 1.0f; light.Diffuse.g = 0.8f; light.Diffuse.b = 0.6f; // 月明かり/夕日
+        light.Specular.r = 1.0f; light.Specular.g = 1.0f; light.Specular.b = 1.0f;
+        
+        // 【重要】逆光を作る
+        // カメラはZマイナス側にいるので、光をZプラス側(奥)から手前へ向ける
+        Vec3 dir = { 0.0f, -0.4f, -1.0f }; 
         Vec3Normalize(&dir);
         light.Direction = *(D3DVECTOR*)&dir;
         
         IDirect3DDevice9_SetLight(g_pd3dDevice, 0, &light);
         IDirect3DDevice9_LightEnable(g_pd3dDevice, 0, TRUE);
 
-        // --- 3. カメラ行列 ---
-        D3DMATRIX matView, matProj;
-        Vec3 eye = { 0.0f, 8.0f + sinf(g_Time * 0.1f) * 2.0f, -30.0f }; // カメラも少し揺らす
+        // --- 行列 ---
+        D3DMATRIX matWorld, matView, matProj;
+        MatrixIdentity(&matWorld);
+        IDirect3DDevice9_SetTransform(g_pd3dDevice, D3DTS_WORLD, &matWorld);
+
+        Vec3 eye = { 0.0f, 7.0f, -35.0f };
         Vec3 at  = { 0.0f, 0.0f, 0.0f };
         Vec3 up  = { 0.0f, 1.0f, 0.0f };
         MatrixLookAtLH(&matView, &eye, &at, &up);
         IDirect3DDevice9_SetTransform(g_pd3dDevice, D3DTS_VIEW, &matView);
 
-        MatrixPerspectiveFovLH(&matProj, PI / 3.5f, (float)SCREEN_WIDTH / SCREEN_HEIGHT, 1.0f, 200.0f);
+        MatrixPerspectiveFovLH(&matProj, PI / 4.0f, (float)SCREEN_WIDTH / SCREEN_HEIGHT, 1.0f, 200.0f);
         IDirect3DDevice9_SetTransform(g_pd3dDevice, D3DTS_PROJECTION, &matProj);
-        
-        // --- 4. 波の更新と描画 ---
+
+        // --- 頂点更新 ---
         CUSTOMVERTEX* pVertices;
         if (SUCCEEDED(IDirect3DVertexBuffer9_Lock(g_pVB, 0, 0, (void**)&pVertices, 0))) {
             int idx = 0;
@@ -276,75 +256,75 @@ void Render() {
             
             for (int z = 0; z < GRID_SIZE; z++) {
                 for (int x = 0; x < GRID_SIZE; x++) {
-                    // 格子点の座標
                     float x0 = x * GRID_SCALE - centerOffset;
                     float z0 = z * GRID_SCALE - centerOffset;
                     float x1 = x0 + GRID_SCALE;
                     float z1 = z0 + GRID_SCALE;
 
-                    // 高さを取得
-                    float y_00 = GetWaveHeight(x0, z0, g_Time);
-                    float y_10 = GetWaveHeight(x1, z0, g_Time);
-                    float y_01 = GetWaveHeight(x0, z1, g_Time);
-                    float y_11 = GetWaveHeight(x1, z1, g_Time);
+                    float y00 = GetWaveHeight(x0, z0, g_Time);
+                    float y10 = GetWaveHeight(x1, z0, g_Time);
+                    float y01 = GetWaveHeight(x0, z1, g_Time);
+                    float y11 = GetWaveHeight(x1, z1, g_Time);
 
-                    // 法線計算 (重要: これがリアルの鍵)
-                    // 近似的に (x1-x0, y10-y00, 0) と (0, y01-y00, z1-z0) の外積を取る
-                    Vec3 vA = { GRID_SCALE, y_10 - y_00, 0 };
-                    Vec3 vB = { 0, y_01 - y_00, GRID_SCALE };
-                    Vec3 n00 = Vec3Cross(&vB, &vA); Vec3Normalize(&n00);
+                    // 法線計算 (簡易版)
+                    // ポリゴンの傾きから計算
+                    Vec3 v1 = { GRID_SCALE, y10 - y00, 0.0f };
+                    Vec3 v2 = { 0.0f, y01 - y00, GRID_SCALE };
+                    Vec3 n; n = Vec3Cross(&v2, &v1); Vec3Normalize(&n);
 
-                    // テクスチャ座標 (波に合わせて少し歪ませるとさらに良いが、今回は単純に貼る)
-                    float tu0 = x / (float)GRID_SIZE * 4.0f + g_Time * 0.05f; // UVスクロール
-                    float tv0 = z / (float)GRID_SIZE * 4.0f;
-                    float tu1 = (x+1) / (float)GRID_SIZE * 4.0f + g_Time * 0.05f;
-                    float tv1 = (z+1) / (float)GRID_SIZE * 4.0f;
+                    // テクスチャ座標 (UV)
+                    // うねりに合わせて少し歪ませると液体感が出る
+                    float dist = sinf(g_Time * 0.5f) * 0.05f;
+                    /*
+                    float tu0 = x / 10.0f + dist * y00; 
+                    float tv0 = z / 10.0f + g_Time * 0.05f; // 手前に流れる
+                    float tu1 = (x+1) / 10.0f + dist * y10;
+                    float tv1 = z / 10.0f + g_Time * 0.05f;
+                    float tv2 = (z+1) / 10.0f + g_Time * 0.05f;
+                    */
+                    // テクスチャをもう少し細かく繰り返して、密度感を出す
+                    float tu0 = x / 8.0f + dist * y00; 
+                    float tv0 = z / 8.0f + g_Time * 0.05f;
+                    float tu1 = (x+1) / 8.0f + dist * y10;
+                    float tv1 = z / 8.0f + g_Time * 0.05f;
+                    float tv2 = (z+1) / 8.0f + g_Time * 0.05f;
 
-                    // ポリゴン1
-                    pVertices[idx].x = x0; pVertices[idx].y = y_00; pVertices[idx].z = z0;
-                    pVertices[idx].nx = n00.x; pVertices[idx].ny = n00.y; pVertices[idx].nz = n00.z;
-                    pVertices[idx].color = 0xFFFFFFFF; pVertices[idx].tu = tu0; pVertices[idx].tv = tv0; idx++;
+                    // Triangle 1
+                    pVertices[idx].x=x0; pVertices[idx].y=y00; pVertices[idx].z=z0;
+                    pVertices[idx].nx=n.x; pVertices[idx].ny=n.y; pVertices[idx].nz=n.z;
+                    pVertices[idx].color=0xFFFFFFFF; pVertices[idx].tu=tu0; pVertices[idx].tv=tv0; idx++;
 
-                    pVertices[idx].x = x1; pVertices[idx].y = y_10; pVertices[idx].z = z0;
-                    pVertices[idx].nx = n00.x; pVertices[idx].ny = n00.y; pVertices[idx].nz = n00.z; 
-                    pVertices[idx].color = 0xFFFFFFFF; pVertices[idx].tu = tu1; pVertices[idx].tv = tv0; idx++;
+                    pVertices[idx].x=x1; pVertices[idx].y=y10; pVertices[idx].z=z0;
+                    pVertices[idx].nx=n.x; pVertices[idx].ny=n.y; pVertices[idx].nz=n.z;
+                    pVertices[idx].color=0xFFFFFFFF; pVertices[idx].tu=tu1; pVertices[idx].tv=tv0; idx++;
 
-                    pVertices[idx].x = x0; pVertices[idx].y = y_01; pVertices[idx].z = z1;
-                    pVertices[idx].nx = n00.x; pVertices[idx].ny = n00.y; pVertices[idx].nz = n00.z;
-                    pVertices[idx].color = 0xFFFFFFFF; pVertices[idx].tu = tu0; pVertices[idx].tv = tv1; idx++;
+                    pVertices[idx].x=x0; pVertices[idx].y=y01; pVertices[idx].z=z1;
+                    pVertices[idx].nx=n.x; pVertices[idx].ny=n.y; pVertices[idx].nz=n.z;
+                    pVertices[idx].color=0xFFFFFFFF; pVertices[idx].tu=tu0; pVertices[idx].tv=tv2; idx++;
 
-                    // ポリゴン2 (法線は簡易的に同じものを使用、厳密には対角で計算すべきだが省略)
-                    pVertices[idx].x = x1; pVertices[idx].y = y_10; pVertices[idx].z = z0;
-                    pVertices[idx].nx = n00.x; pVertices[idx].ny = n00.y; pVertices[idx].nz = n00.z;
-                    pVertices[idx].color = 0xFFFFFFFF; pVertices[idx].tu = tu1; pVertices[idx].tv = tv0; idx++;
+                    // Triangle 2
+                    pVertices[idx].x=x1; pVertices[idx].y=y10; pVertices[idx].z=z0;
+                    pVertices[idx].nx=n.x; pVertices[idx].ny=n.y; pVertices[idx].nz=n.z;
+                    pVertices[idx].color=0xFFFFFFFF; pVertices[idx].tu=tu1; pVertices[idx].tv=tv0; idx++;
 
-                    pVertices[idx].x = x1; pVertices[idx].y = y_11; pVertices[idx].z = z1;
-                    pVertices[idx].nx = n00.x; pVertices[idx].ny = n00.y; pVertices[idx].nz = n00.z;
-                    pVertices[idx].color = 0xFFFFFFFF; pVertices[idx].tu = tu1; pVertices[idx].tv = tv1; idx++;
+                    pVertices[idx].x=x1; pVertices[idx].y=y11; pVertices[idx].z=z1;
+                    pVertices[idx].nx=n.x; pVertices[idx].ny=n.y; pVertices[idx].nz=n.z;
+                    pVertices[idx].color=0xFFFFFFFF; pVertices[idx].tu=tu1; pVertices[idx].tv=tv2; idx++;
 
-                    pVertices[idx].x = x0; pVertices[idx].y = y_01; pVertices[idx].z = z1;
-                    pVertices[idx].nx = n00.x; pVertices[idx].ny = n00.y; pVertices[idx].nz = n00.z;
-                    pVertices[idx].color = 0xFFFFFFFF; pVertices[idx].tu = tu0; pVertices[idx].tv = tv1; idx++;
+                    pVertices[idx].x=x0; pVertices[idx].y=y01; pVertices[idx].z=z1;
+                    pVertices[idx].nx=n.x; pVertices[idx].ny=n.y; pVertices[idx].nz=n.z;
+                    pVertices[idx].color=0xFFFFFFFF; pVertices[idx].tu=tu0; pVertices[idx].tv=tv2; idx++;
                 }
             }
             IDirect3DVertexBuffer9_Unlock(g_pVB);
         }
 
-        // テクスチャセット
         IDirect3DDevice9_SetTexture(g_pd3dDevice, 0, g_pTexWater);
-        // テクスチャサンプラ設定（異方性フィルタリングで奥の方も綺麗に）
-        IDirect3DDevice9_SetSamplerState(g_pd3dDevice, 0, D3DSAMP_MINFILTER, D3DTEXF_LINEAR);
         IDirect3DDevice9_SetSamplerState(g_pd3dDevice, 0, D3DSAMP_MAGFILTER, D3DTEXF_LINEAR);
-        IDirect3DDevice9_SetSamplerState(g_pd3dDevice, 0, D3DSAMP_MIPFILTER, D3DTEXF_NONE);
-        
-        // ワールド行列初期化
-        D3DMATRIX matWorld;
-        MatrixIdentity(&matWorld);
-        IDirect3DDevice9_SetTransform(g_pd3dDevice, D3DTS_WORLD, &matWorld);
+        IDirect3DDevice9_SetSamplerState(g_pd3dDevice, 0, D3DSAMP_MINFILTER, D3DTEXF_LINEAR);
 
         IDirect3DDevice9_SetStreamSource(g_pd3dDevice, 0, g_pVB, 0, sizeof(CUSTOMVERTEX));
         IDirect3DDevice9_SetFVF(g_pd3dDevice, D3DFVF_CUSTOMVERTEX);
-        
         IDirect3DDevice9_DrawPrimitive(g_pd3dDevice, D3DPT_TRIANGLELIST, 0, GRID_SIZE * GRID_SIZE * 2);
 
         IDirect3DDevice9_EndScene(g_pd3dDevice);
@@ -354,7 +334,6 @@ void Render() {
 
 void Cleanup() {
     if (g_pTexWater) IDirect3DTexture9_Release(g_pTexWater);
-    if (g_pTexSky) IDirect3DTexture9_Release(g_pTexSky);
     if (g_pVB) IDirect3DVertexBuffer9_Release(g_pVB);
     if (g_pd3dDevice) IDirect3DDevice9_Release(g_pd3dDevice);
     if (g_pD3D) IDirect3D9_Release(g_pD3D);
@@ -367,9 +346,9 @@ LRESULT WINAPI MsgProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
 }
 
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow) {
-    WNDCLASSEX wc = { sizeof(WNDCLASSEX), CS_CLASSDC, MsgProc, 0L, 0L, GetModuleHandle(NULL), NULL, NULL, NULL, NULL, "DX9_RealWave", NULL };
+    WNDCLASSEX wc = { sizeof(WNDCLASSEX), CS_CLASSDC, MsgProc, 0L, 0L, GetModuleHandle(NULL), NULL, NULL, NULL, NULL, "DX9_V2", NULL };
     RegisterClassEx(&wc);
-    HWND hWnd = CreateWindow("DX9_RealWave", "TCC DX9 Realistic Ocean (Procedural)", WS_OVERLAPPEDWINDOW, 100, 100, SCREEN_WIDTH, SCREEN_HEIGHT, GetDesktopWindow(), NULL, wc.hInstance, NULL);
+    HWND hWnd = CreateWindow("DX9_V2", "TCC DX9 Real Ocean V2 (Smoothed)", WS_OVERLAPPEDWINDOW, 100, 100, SCREEN_WIDTH, SCREEN_HEIGHT, GetDesktopWindow(), NULL, wc.hInstance, NULL);
 
     if (SUCCEEDED(InitD3D(hWnd))) {
         ShowWindow(hWnd, nCmdShow);
@@ -380,6 +359,6 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
             else { Render(); }
         }
     }
-    UnregisterClass("DX9_RealWave", wc.hInstance);
+    UnregisterClass("DX9_V2", wc.hInstance);
     return 0;
 }
