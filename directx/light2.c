@@ -27,6 +27,7 @@
 #define PILLAR_SIZE 2.5f   // 柱の太さ
 #define PILLAR_POS  10.0f  // 柱の位置(中心からの距離)
 #define CUBE_SIZE   2.5f   // キューブの大きさ
+#define LIGHT_SIZE  1.0f   // 光源オブジェクトの大きさ (NEW)
 
 // 頂点構造体
 typedef struct {
@@ -42,24 +43,27 @@ LPDIRECT3DDEVICE9       g_pd3dDevice = NULL;
 LPDIRECT3DVERTEXBUFFER9 g_pVB = NULL;
 
 // テクスチャ群
-LPDIRECT3DTEXTURE9      g_pTexBrick = NULL;    // 壁
-LPDIRECT3DTEXTURE9      g_pTexConcrete = NULL; // 床・天
-LPDIRECT3DTEXTURE9      g_pTexWood = NULL;     // 柱 (NEW)
-LPDIRECT3DTEXTURE9      g_pTexPlasma = NULL;   // キューブ (NEW)
+LPDIRECT3DTEXTURE9      g_pTexBrick = NULL;    
+LPDIRECT3DTEXTURE9      g_pTexConcrete = NULL; 
+LPDIRECT3DTEXTURE9      g_pTexWood = NULL;     
+LPDIRECT3DTEXTURE9      g_pTexPlasma = NULL;   
 
 // 描画管理用（頂点の開始位置と数を記録）
 int g_TotalVertices = 0;
 int g_RoomStartVert = 0;   int g_RoomVertCount = 0;
 int g_PillarStartVert = 0; int g_PillarVertCount = 0;
 int g_CubeStartVert = 0;   int g_CubeVertCount = 0;
+int g_LightObjStartVert = 0; int g_LightObjVertCount = 0; // (NEW) 光源オブジェクト用
 
 typedef struct { float x, y, z; } Vec3;
 
-// カメラ・アニメーション
-Vec3  g_CamPos = { 0.0f, 0.0f, -25.0f }; // 少し引いて全体を見る
+// カメラ・ライト位置設定
+Vec3  g_CamPos = { 0.0f, 0.0f, -25.0f };
+Vec3  g_LightPos = { 5.0f, 5.3f, -5.0f }; // (NEW) 光源の位置を変数化
+
 float g_CameraYaw = 0.0f;
 float g_CameraPitch = 0.0f;
-float g_CubeRotation = 0.0f; // キューブ回転用
+float g_CubeRotation = 0.0f; 
 
 int   g_LastMouseX = 0; int g_LastMouseY = 0; BOOL g_IsDragging = FALSE;
 
@@ -112,10 +116,9 @@ void MatrixPerspectiveFovLH(D3DMATRIX* out, float fovy, float aspect, float zn, 
 }
 
 // ============================================================================
-// テクスチャ生成セクション
+// テクスチャ生成セクション (変更なし)
 // ============================================================================
 
-// 1. レンガ (既存)
 void CreateBrickTexture() {
     int w = 256; int h = 256;
     IDirect3DDevice9_CreateTexture(g_pd3dDevice, w, h, 1, 0, D3DFMT_X8R8G8B8, D3DPOOL_MANAGED, &g_pTexBrick, NULL);
@@ -136,7 +139,6 @@ void CreateBrickTexture() {
     }
 }
 
-// 2. コンクリート (既存)
 void CreateConcreteTexture() {
     int w = 256; int h = 256;
     IDirect3DDevice9_CreateTexture(g_pd3dDevice, w, h, 1, 0, D3DFMT_X8R8G8B8, D3DPOOL_MANAGED, &g_pTexConcrete, NULL);
@@ -152,7 +154,6 @@ void CreateConcreteTexture() {
     }
 }
 
-// 3. 高級な木目 (Polished Wood) - NEW!
 void CreateWoodTexture() {
     int w = 256; int h = 256;
     IDirect3DDevice9_CreateTexture(g_pd3dDevice, w, h, 1, 0, D3DFMT_X8R8G8B8, D3DPOOL_MANAGED, &g_pTexWood, NULL);
@@ -161,20 +162,12 @@ void CreateWoodTexture() {
         DWORD* p = (DWORD*)lr.pBits;
         for (int y = 0; y < h; y++) {
             for (int x = 0; x < w; x++) {
-                // 基本の波 (X座標) に、Y座標によるノイズ(ゆらぎ)を加える
-                float noise = (float)(rand() % 100) / 100.0f * 5.0f; // ノイズ強度
+                float noise = (float)(rand() % 100) / 100.0f * 5.0f; 
                 float sineValue = sinf( (float)x * 0.15f + (float)y * 0.02f + noise );
-                
-                // -1.0 ~ 1.0 を 0.0 ~ 1.0 に正規化
                 float grain = (sineValue + 1.0f) * 0.5f;
-                
-                // 濃い茶色(Dark) から 明るい茶色(Light) へのグラデーション
-                // Dark: 60, 30, 10
-                // Light: 160, 100, 50
                 int r = (int)(60 + grain * 100);
                 int g = (int)(30 + grain * 70);
                 int b = (int)(10 + grain * 40);
-                
                 p[y*w+x] = D3DCOLOR_XRGB(r, g, b);
             }
         }
@@ -182,7 +175,6 @@ void CreateWoodTexture() {
     }
 }
 
-// 4. デジタル・プラズマ (Plasma) - NEW!
 void CreatePlasmaTexture() {
     int w = 256; int h = 256;
     IDirect3DDevice9_CreateTexture(g_pd3dDevice, w, h, 1, 0, D3DFMT_X8R8G8B8, D3DPOOL_MANAGED, &g_pTexPlasma, NULL);
@@ -193,17 +185,10 @@ void CreatePlasmaTexture() {
             for (int x = 0; x < w; x++) {
                 float fx = (float)x * 0.05f;
                 float fy = (float)y * 0.05f;
-                
-                // 複数の波の干渉
                 float v = sinf(fx) + sinf(fy) + sinf((fx + fy) * 0.5f) + sinf(sqrtf(fx*fx + fy*fy) * 0.5f);
-                // vは概ね -4 ~ +4 の範囲
-
-                // 値を色相としてサイケデリックな色を作る
-                // sinの位相をずらしてRGBを作る
                 int r = (int)(128.0f + 127.0f * sinf(v * PI));
-                int g = (int)(128.0f + 127.0f * sinf(v * PI + 2.0f*PI/3.0f)); // 120度ずらす
-                int b = (int)(128.0f + 127.0f * sinf(v * PI + 4.0f*PI/3.0f)); // 240度ずらす
-                
+                int g = (int)(128.0f + 127.0f * sinf(v * PI + 2.0f*PI/3.0f)); 
+                int b = (int)(128.0f + 127.0f * sinf(v * PI + 4.0f*PI/3.0f)); 
                 p[y*w+x] = D3DCOLOR_XRGB(r, g, b);
             }
         }
@@ -237,21 +222,13 @@ void CreatePlane(CUSTOMVERTEX** pPtr, Vec3 origin, Vec3 uAxis, Vec3 vAxis, Vec3 
     *pPtr = v;
 }
 
-// 直方体を作るヘルパー (Center座標, SizeX, SizeY, SizeZ)
-// div: 面の分割数
 void CreateBox(CUSTOMVERTEX** pPtr, Vec3 center, float sx, float sy, float sz, int div, float repU, float repV) {
     float hx = sx/2; float hy = sy/2; float hz = sz/2;
-    // Front (Z-)
     CreatePlane(pPtr, (Vec3){center.x-hx, center.y+hy, center.z-hz}, (Vec3){2*hx,0,0}, (Vec3){0,-2*hy,0}, (Vec3){0,0,-1}, div, repU, repV);
-    // Back (Z+)
     CreatePlane(pPtr, (Vec3){center.x+hx, center.y+hy, center.z+hz}, (Vec3){-2*hx,0,0}, (Vec3){0,-2*hy,0}, (Vec3){0,0,1}, div, repU, repV);
-    // Left (X-)
     CreatePlane(pPtr, (Vec3){center.x-hx, center.y+hy, center.z+hz}, (Vec3){0,0,-2*hz}, (Vec3){0,-2*hy,0}, (Vec3){-1,0,0}, div, repU, repV);
-    // Right (X+)
     CreatePlane(pPtr, (Vec3){center.x+hx, center.y+hy, center.z-hz}, (Vec3){0,0,2*hz}, (Vec3){0,-2*hy,0}, (Vec3){1,0,0}, div, repU, repV);
-    // Top (Y+)
     CreatePlane(pPtr, (Vec3){center.x-hx, center.y+hy, center.z+hz}, (Vec3){2*hx,0,0}, (Vec3){0,0,-2*hz}, (Vec3){0,1,0}, div, repU, repV);
-    // Bottom (Y-)
     CreatePlane(pPtr, (Vec3){center.x-hx, center.y-hy, center.z-hz}, (Vec3){2*hx,0,0}, (Vec3){0,0,2*hz}, (Vec3){0,-1,0}, div, repU, repV);
 }
 
@@ -260,24 +237,27 @@ HRESULT InitGeometry() {
     int roomDiv = WALL_DIVISIONS;
     
     // 頂点数計算
-    // 1. 部屋 (6面)
+    // 1. 部屋
     g_RoomStartVert = 0;
     g_RoomVertCount = 6 * (roomDiv * roomDiv * 6);
     
-    // 2. 柱 (4本, 各6面)
-    // 柱は細いので分割数少なめでOK (例えば4分割)
+    // 2. 柱
     int pillarDiv = 4;
     int vertsPerPillar = 6 * (pillarDiv * pillarDiv * 6);
     g_PillarStartVert = g_RoomVertCount;
     g_PillarVertCount = 4 * vertsPerPillar;
 
-    // 3. キューブ (1個, 6面)
-    // ライティングを綺麗に見せるため少し分割する(8分割)
+    // 3. キューブ
     int cubeDiv = 8;
     g_CubeStartVert = g_PillarStartVert + g_PillarVertCount;
     g_CubeVertCount = 6 * (cubeDiv * cubeDiv * 6);
 
-    g_TotalVertices = g_CubeStartVert + g_CubeVertCount;
+    // 4. 光源用オブジェクト (NEW)
+    int lightObjDiv = 2; // ポリゴン数は少なくてよい
+    g_LightObjStartVert = g_CubeStartVert + g_CubeVertCount;
+    g_LightObjVertCount = 6 * (lightObjDiv * lightObjDiv * 6);
+
+    g_TotalVertices = g_LightObjStartVert + g_LightObjVertCount;
 
     if (FAILED(IDirect3DDevice9_CreateVertexBuffer(g_pd3dDevice, g_TotalVertices * sizeof(CUSTOMVERTEX), 0, D3DFVF_CUSTOMVERTEX, D3DPOOL_DEFAULT, &g_pVB, NULL))) return E_FAIL;
 
@@ -286,34 +266,27 @@ HRESULT InitGeometry() {
     CUSTOMVERTEX* pWalker = pVertices;
 
     // --- 1. 部屋生成 ---
-    // (以前と同じコード)
     float U_WALL = 6.0f; float V_WALL = 2.0f; float UV_FLOOR = 6.0f;
-    // 前(Z+)
     CreatePlane(&pWalker, (Vec3){-W, H, W}, (Vec3){2*W, 0, 0}, (Vec3){0, -2*H, 0}, (Vec3){0, 0, -1}, roomDiv, U_WALL, V_WALL);
-    // 後(Z-)
     CreatePlane(&pWalker, (Vec3){W, H, -W}, (Vec3){-2*W, 0, 0}, (Vec3){0, -2*H, 0}, (Vec3){0, 0, 1}, roomDiv, U_WALL, V_WALL);
-    // 左(X-)
     CreatePlane(&pWalker, (Vec3){-W, H, -W}, (Vec3){0, 0, 2*W}, (Vec3){0, -2*H, 0}, (Vec3){1, 0, 0}, roomDiv, U_WALL, V_WALL);
-    // 右(X+)
     CreatePlane(&pWalker, (Vec3){W, H, W}, (Vec3){0, 0, -2*W}, (Vec3){0, -2*H, 0}, (Vec3){-1, 0, 0}, roomDiv, U_WALL, V_WALL);
-    // 天井
     CreatePlane(&pWalker, (Vec3){-W, H, -W}, (Vec3){2*W, 0, 0}, (Vec3){0, 0, 2*W}, (Vec3){0, -1, 0}, roomDiv, UV_FLOOR, UV_FLOOR);
-    // 床
     CreatePlane(&pWalker, (Vec3){-W, -H, W}, (Vec3){2*W, 0, 0}, (Vec3){0, 0, -2*W}, (Vec3){0, 1, 0}, roomDiv, UV_FLOOR, UV_FLOOR);
 
     // --- 2. 柱生成 ---
-    // 四隅の少し内側に配置
-    float P = PILLAR_POS; float PS = PILLAR_SIZE; float PH = ROOM_HEIGHT * 2; // 床から天井まで貫く
-    // 木目は縦に流れるようにUVを設定 (U=1, V=4)
-    CreateBox(&pWalker, (Vec3){-P, 0,  P}, PS, PH, PS, pillarDiv, 1.0f, 4.0f); // 左奥
-    CreateBox(&pWalker, (Vec3){ P, 0,  P}, PS, PH, PS, pillarDiv, 1.0f, 4.0f); // 右奥
-    CreateBox(&pWalker, (Vec3){-P, 0, -P}, PS, PH, PS, pillarDiv, 1.0f, 4.0f); // 左手前
-    CreateBox(&pWalker, (Vec3){ P, 0, -P}, PS, PH, PS, pillarDiv, 1.0f, 4.0f); // 右手前
+    float P = PILLAR_POS; float PS = PILLAR_SIZE; float PH = ROOM_HEIGHT * 2;
+    CreateBox(&pWalker, (Vec3){-P, 0,  P}, PS, PH, PS, pillarDiv, 1.0f, 4.0f);
+    CreateBox(&pWalker, (Vec3){ P, 0,  P}, PS, PH, PS, pillarDiv, 1.0f, 4.0f);
+    CreateBox(&pWalker, (Vec3){-P, 0, -P}, PS, PH, PS, pillarDiv, 1.0f, 4.0f);
+    CreateBox(&pWalker, (Vec3){ P, 0, -P}, PS, PH, PS, pillarDiv, 1.0f, 4.0f);
 
     // --- 3. キューブ生成 ---
-    // 中心(0,0,0)に作る。回転はRender時の行列で行うので、ここではAxis AlignedでOK
-    // プラズマテクスチャはUV全体に貼る
     CreateBox(&pWalker, (Vec3){0, 0, 0}, CUBE_SIZE, CUBE_SIZE, CUBE_SIZE, cubeDiv, 1.0f, 1.0f);
+
+    // --- 4. 光源用オブジェクト生成 (NEW) ---
+    // 原点に作成し、Render時に移動させる
+    CreateBox(&pWalker, (Vec3){0, 0, 0}, LIGHT_SIZE, LIGHT_SIZE, LIGHT_SIZE, lightObjDiv, 1.0f, 1.0f);
 
     IDirect3DVertexBuffer9_Unlock(g_pVB);
     return S_OK;
@@ -330,13 +303,11 @@ HRESULT InitD3D(HWND hWnd) {
     IDirect3DDevice9_SetRenderState(g_pd3dDevice, D3DRS_LIGHTING, TRUE);
     IDirect3DDevice9_SetRenderState(g_pd3dDevice, D3DRS_AMBIENT, 0x00202020);
     IDirect3DDevice9_SetRenderState(g_pd3dDevice, D3DRS_NORMALIZENORMALS, TRUE);
-    IDirect3DDevice9_SetRenderState(g_pd3dDevice, D3DRS_CULLMODE, D3DCULL_CCW); // カリング有効(通常)
+    IDirect3DDevice9_SetRenderState(g_pd3dDevice, D3DRS_CULLMODE, D3DCULL_CCW);
     IDirect3DDevice9_SetRenderState(g_pd3dDevice, D3DRS_ZENABLE, TRUE);
-    // バイリニア補間
     IDirect3DDevice9_SetSamplerState(g_pd3dDevice, 0, D3DSAMP_MINFILTER, D3DTEXF_LINEAR);
     IDirect3DDevice9_SetSamplerState(g_pd3dDevice, 0, D3DSAMP_MAGFILTER, D3DTEXF_LINEAR);
 
-    // テクスチャ生成呼び出し
     CreateBrickTexture();
     CreateConcreteTexture();
     CreateWoodTexture();
@@ -366,16 +337,18 @@ void Render() {
     IDirect3DDevice9_Clear(g_pd3dDevice, 0, NULL, D3DCLEAR_TARGET | D3DCLEAR_ZBUFFER, D3DCOLOR_XRGB(0, 0, 0), 1.0f, 0);
 
     if (SUCCEEDED(IDirect3DDevice9_BeginScene(g_pd3dDevice))) {
-        // マテリアル
+        // デフォルトマテリアル
         D3DMATERIAL9 mtrl; ZeroMemory(&mtrl, sizeof(mtrl));
         mtrl.Diffuse.r = mtrl.Diffuse.g = mtrl.Diffuse.b = 1.0f; mtrl.Diffuse.a = 1.0f; mtrl.Ambient = mtrl.Diffuse;
         IDirect3DDevice9_SetMaterial(g_pd3dDevice, &mtrl);
 
-        // ライト (天井の少し下)
+        // ライト (位置を g_LightPos 変数から取得)
         D3DLIGHT9 light; ZeroMemory(&light, sizeof(light));
         light.Type = D3DLIGHT_POINT;
         light.Diffuse.r = 1.0f; light.Diffuse.g = 0.95f; light.Diffuse.b = 0.8f;
-        light.Position.x = 0.0f; light.Position.y = 5.0f; light.Position.z = 0.0f;
+        light.Position.x = g_LightPos.x; 
+        light.Position.y = g_LightPos.y; 
+        light.Position.z = g_LightPos.z;
         light.Range = 60.0f;
         light.Attenuation0 = 0.0f; light.Attenuation1 = 0.05f; light.Attenuation2 = 0.0f;
         IDirect3DDevice9_SetLight(g_pd3dDevice, 0, &light);
@@ -399,8 +372,6 @@ void Render() {
         IDirect3DDevice9_SetTransform(g_pd3dDevice, D3DTS_WORLD, &matWorld);
 
         // 1. 壁 (レンガ)
-        // 部屋の頂点は最初の部分。壁は最初の4面分。
-        // 壁1面あたりの頂点数 = (g_RoomVertCount/6)
         int vertsPerRoomPlane = g_RoomVertCount / 6;
         IDirect3DDevice9_SetTexture(g_pd3dDevice, 0, g_pTexBrick);
         IDirect3DDevice9_DrawPrimitive(g_pd3dDevice, D3DPT_TRIANGLELIST, 0, (vertsPerRoomPlane * 4) / 3);
@@ -414,23 +385,32 @@ void Render() {
         IDirect3DDevice9_DrawPrimitive(g_pd3dDevice, D3DPT_TRIANGLELIST, g_PillarStartVert, g_PillarVertCount / 3);
 
         // 4. キューブ (プラズマ + 回転)
-        // 回転行列を作成
         D3DMATRIX matRot, matTrans, matCubeWorld;
-        // XYZ軸すべてで少しずつ回す
         MatrixRotationYawPitchRoll(&matRot, g_CubeRotation, g_CubeRotation * 0.7f, g_CubeRotation * 0.3f);
-        // 中心座標(0,0,0)なので移動は不要だが、高さを変えたい場合はここでTranslation
         MatrixTranslation(&matTrans, 0.0f, 0.0f, 0.0f); 
         MatrixMultiply(&matCubeWorld, &matRot, &matTrans);
         
         IDirect3DDevice9_SetTransform(g_pd3dDevice, D3DTS_WORLD, &matCubeWorld);
         IDirect3DDevice9_SetTexture(g_pd3dDevice, 0, g_pTexPlasma);
-        // ライティングを少し無視して発光っぽく見せるテクニック
-        // マテリアルのAmbientを上げて、自己発光(Emissive)もつける
         D3DMATERIAL9 mtrlPlasma = mtrl;
         mtrlPlasma.Emissive.r = 0.3f; mtrlPlasma.Emissive.g = 0.3f; mtrlPlasma.Emissive.b = 0.3f;
         IDirect3DDevice9_SetMaterial(g_pd3dDevice, &mtrlPlasma);
         
         IDirect3DDevice9_DrawPrimitive(g_pd3dDevice, D3DPT_TRIANGLELIST, g_CubeStartVert, g_CubeVertCount / 3);
+
+        // 5. 光源オブジェクト (NEW) - 小さな白い箱を描画
+        D3DMATRIX matLightTrans;
+        MatrixTranslation(&matLightTrans, g_LightPos.x, g_LightPos.y, g_LightPos.z);
+        IDirect3DDevice9_SetTransform(g_pd3dDevice, D3DTS_WORLD, &matLightTrans);
+
+        // 光って見えるようにEmissiveを最強(白)にする
+        D3DMATERIAL9 mtrlLight; ZeroMemory(&mtrlLight, sizeof(mtrlLight));
+        mtrlLight.Emissive.r = 0.9f; mtrlLight.Emissive.g = 0.9f; mtrlLight.Emissive.b = 0.6f; 
+        IDirect3DDevice9_SetMaterial(g_pd3dDevice, &mtrlLight);
+
+        // テクスチャはコンクリートなどを使い回す（真っ白になるのであまり見えない）
+        IDirect3DDevice9_SetTexture(g_pd3dDevice, 0, NULL);
+        IDirect3DDevice9_DrawPrimitive(g_pd3dDevice, D3DPT_TRIANGLELIST, g_LightObjStartVert, g_LightObjVertCount / 3);
 
         IDirect3DDevice9_EndScene(g_pd3dDevice);
     }
@@ -467,7 +447,7 @@ LRESULT WINAPI MsgProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow) {
     WNDCLASSEX wc = { sizeof(WNDCLASSEX), CS_CLASSDC, MsgProc, 0L, 0L, GetModuleHandle(NULL), NULL, NULL, NULL, NULL, "DX9_Final", NULL };
     RegisterClassEx(&wc);
-    HWND hWnd = CreateWindow("DX9_Final", "DX9 Pure C Demo: Wood & Plasma", WS_OVERLAPPEDWINDOW, 100, 100, SCREEN_WIDTH, SCREEN_HEIGHT, GetDesktopWindow(), NULL, wc.hInstance, NULL);
+    HWND hWnd = CreateWindow("DX9_Final", "DX9 Pure C Demo: Light Object", WS_OVERLAPPEDWINDOW, 100, 100, SCREEN_WIDTH, SCREEN_HEIGHT, GetDesktopWindow(), NULL, wc.hInstance, NULL);
     if (SUCCEEDED(InitD3D(hWnd))) {
         ShowWindow(hWnd, nCmdShow); UpdateWindow(hWnd);
         MSG msg; ZeroMemory(&msg, sizeof(msg));
