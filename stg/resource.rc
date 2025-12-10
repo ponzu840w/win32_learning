@@ -6,3 +6,7 @@ IDB_BG_BACK  BITMAP  "bg_back.bmp"
 IDB_BG_FRONT BITMAP  "bg_front.bmp"
 IDB_PLAYER   BITMAP  "player.bmp"
 IDB_ENEMY    BITMAP  "enemy.bmp"
+/* 魔王魂 戦闘効果音 銃01 https://maou.audio/se_battle_gun01/ */
+IDR_SE_SHOT  WAVE    "maou_se_battle_gun01.wav"
+/* 魔王魂 戦闘効果音 爆発01 https://maou.audio/se_battle_explosion05/ */
+IDR_SE_HIT  WAVE    "maou_se_battle_explosion05.wav"

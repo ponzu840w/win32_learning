@@ -6,8 +6,7 @@
 #define IDB_BG_FRONT   102
 #define IDB_PLAYER     103
 #define IDB_ENEMY      104
-
-// 音声ファイルを使う場合はWAVもリソースに入れるとexe単体で動きますが
-// 今回は簡単のためwavは外部ファイル読み込みにします。
+#define IDR_SE_SHOT    105
+#define IDR_SE_HIT     106
 
 #endif

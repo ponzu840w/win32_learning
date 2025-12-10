@@ -196,17 +196,17 @@ void Update()
   // --- ゲームオーバー画面 ---
   if (gameState == STATE_GAMEOVER)
   {
-    if (GetAsyncKeyState('C') & 0x8000)
+    if (GetAsyncKeyState(VK_RETURN) & 0x8000)
     {
       ResetGame();
       gameState = STATE_PLAY;
     }
-    return;
 
-    if (GetAsyncKeyState(VK_RETURN) & 0x8000)
+    if (GetAsyncKeyState('R') & 0x8000)
     {
       gameState = STATE_TITLE;
     }
+    return;
   }
 
   // --- プレイ中ロジック ---
@@ -241,7 +241,9 @@ void Update()
         playerBullets[i].vx = 0;
         playerBullets[i].vy = -12.0; // まっすぐ上へ
         shotCooldown = 60 * 0.5;
-        //PlaySound("shoot.wav", NULL, SND_FILENAME | SND_ASYNC | SND_NODEFAULT);
+        PlaySound(MAKEINTRESOURCE(IDR_SE_SHOT), // wav音源をリソースIDで指定
+                  hInst,
+                  SND_RESOURCE | SND_ASYNC);    // リソースを使う | 非同期で再生
         break;
       }
     }
@@ -334,7 +336,9 @@ void Update()
         playerBullets[j].active = 0;
         enemies[i].active = 0;
         score += 100;
-        PlaySound("hit.wav", NULL, SND_FILENAME | SND_ASYNC | SND_NODEFAULT);
+        PlaySound(MAKEINTRESOURCE(IDR_SE_HIT), // wav音源をリソースIDで指定
+                  hInst,
+                  SND_RESOURCE | SND_ASYNC);    // リソースを使う | 非同期で再生
       }
     }
 
@@ -345,7 +349,9 @@ void Update()
     {
       gameState = STATE_GAMEOVER;
       if (score > highScore) highScore = score;
-      PlaySound("explode.wav", NULL, SND_FILENAME | SND_ASYNC);
+      PlaySound(MAKEINTRESOURCE(IDR_SE_HIT), // wav音源をリソースIDで指定
+                hInst,
+                SND_RESOURCE | SND_ASYNC);    // リソースを使う | 非同期で再生
     }
   }
 
@@ -372,7 +378,9 @@ void Update()
     {
       gameState = STATE_GAMEOVER;
       if (score > highScore) highScore = score;
-      PlaySound("explode.wav", NULL, SND_FILENAME | SND_ASYNC);
+      PlaySound(MAKEINTRESOURCE(IDR_SE_HIT), // wav音源をリソースIDで指定
+                hInst,
+                SND_RESOURCE | SND_ASYNC);    // リソースを使う | 非同期で再生
     }
   }
 }
@@ -414,21 +422,17 @@ void Draw(HWND hWnd)
     }
 
     // 自機弾 (黄色い長方形)
-    HBRUSH hBrushBullet = CreateSolidBrush(RGB(255, 255, 0));
-    HBRUSH hOldBrush = (HBRUSH)SelectObject(hdcMemory, hBrushBullet);
     for (int i = 0; i < MAX_PLAYER_BULLETS; i++)
     {
       if (playerBullets[i].active)
       {
-        Rectangle(hdcMemory,
-                 (int)playerBullets[i].x,
-                 (int)playerBullets[i].y,
-                 (int)playerBullets[i].x + 4,
-                 (int)playerBullets[i].y + 12);
+        RECT rc = { (int)playerBullets[i].x,
+                    (int)playerBullets[i].y,
+                    (int)playerBullets[i].x + 4,
+                    (int)playerBullets[i].y + 12 };
+        DrawPanel(rc, 1, RGB(255,255,0), RGB(255,50,0));
       }
     }
-    SelectObject(hdcMemory, hOldBrush); // ブラシ戻し
-    DeleteObject(hBrushBullet);         // ブラシ削除
 
     // 敵弾 (赤い円)
     HBRUSH hBrushEnemyBullet = CreateSolidBrush(RGB(255, 50, 50));
@@ -470,7 +474,7 @@ void Draw(HWND hWnd)
   if (gameState == STATE_GAMEOVER)
   {
     char* msg1 = "GAME OVER";
-    char* msg2 = "PRESS ENTER TO TITLE, C TO CONTINUE";
+    char* msg2 = "PRESS ENTER TO CONTINUE, R TO TITLE";
 
     RECT rc = { 140, 120, 500, 350 };
     DrawPanel(rc, 2, RGB(250,250,250), RGB(200,200,200));
