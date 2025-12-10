@@ -11,12 +11,16 @@
 #define FRAME_TIME    (1000 / FPS)
 
 // グローバル変数
-HINSTANCE hInst;
-HDC hdcScreen;
-HDC hdcMemory;
-HDC hdcImage;
-HBITMAP hBmpOffscreen;
-HBITMAP hBmpImage;
+
+// 不変オブジェクト
+HINSTANCE hInst;        // プロセスのハンドル
+HINSTANCE hInst;        // プロセスのハンドル
+HDC hdcScreen;          // ウィンドウ表示領域DC
+HDC hdcMemory;          // 内部描画用DC
+HDC hdcImage;           // 画像用DC
+HBITMAP hBmpOffscreen;  // 内部描画用ビットマップ
+
+// 画面の状態
 int pos_x = 20;   // 画像の表示位置
 int pos_y = 20;
 int image_width;  // 画像のサイズ
@@ -53,6 +57,26 @@ void Init(HWND hWnd)
   GetObject(hBmpImage, sizeof(BITMAP), &bm);
   image_width = bm.bmWidth;
   image_height = bm.bmHeight;
+}
+
+/*
+  ---------------------------------------------------------
+                          終了処理
+  ---------------------------------------------------------
+    確保したリソースの解放を行う
+*/
+void Uninit(HWND hWnd)
+{
+  // DCの削除
+  if (hdcMemory) DeleteDC(hdcMemory);
+  if (hdcImage) DeleteDC(hdcImage);
+
+  // 保持していたウィンドウDCの解放
+  if (hdcScreen) ReleaseDC(hWnd, hdcScreen);
+
+  // ビットマップの削除
+  if (hBmpOffscreen) DeleteObject(hBmpOffscreen);
+  if (hBmpImage) DeleteObject(hBmpImage);
 }
 
 /*
