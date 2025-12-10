@@ -19,6 +19,7 @@ HDC hdcScreen;          // ウィンドウ表示領域DC
 HDC hdcMemory;          // 内部描画用DC
 HDC hdcImage;           // 画像用DC
 HBITMAP hBmpOffscreen;  // 内部描画用ビットマップ
+HBITMAP hBmpImage;      // 画像用ビットマップ
 
 // 画面の状態
 int pos_x = 20;   // 画像の表示位置
