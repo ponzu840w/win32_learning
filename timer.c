@@ -7,8 +7,8 @@
 #define ID_PBAR 102
 
 // デフォルト値
-#define LEN_WORK  1
-#define LEN_BREAK  1
+#define LEN_WORK   25
+#define LEN_BREAK  5
 
 // グローバル変数
 int time_left;          // 残り時間
