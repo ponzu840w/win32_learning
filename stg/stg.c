@@ -84,6 +84,7 @@ int spawnTimer = 0;
 // 関数プロトタイプ
 void DrawPanel(RECT, int, COLORREF, COLORREF);
 void TextOutShadow(HDC, int, int, const char*, int, COLORREF, COLORREF);
+void TextOutCenteredShadow(HDC, int, const char*, int, COLORREF, COLORREF);
 int CheckCollision(double, double, int, int, double, double, int, int);
 void DrawScrollingBackground(HDC, HBITMAP, int);
 void DrawScrollingCloud(HDC, Sprite*, int);
@@ -111,9 +112,13 @@ void Init(HWND hWnd)
   hBmpOffscreen = CreateCompatibleBitmap(hdcScreen, WINDOW_WIDTH, WINDOW_HEIGHT);
   SelectObject(hdcMemory, hBmpOffscreen);
 
-  // フォント作成 (MSゴシック, 太字)
-  hFontScore = CreateFont(25, 0, 0, 0, FW_BOLD, 0, 0, 0, SHIFTJIS_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY, FIXED_PITCH | FF_MODERN, "MS Gothic");
-  hFontBig = CreateFont(45, 0, 0, 0, FW_BOLD, 0, 0, 0, SHIFTJIS_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY, FIXED_PITCH | FF_MODERN, "MS Gothic");
+  // フォント作成 (Arial, 太字)
+  hFontBig = CreateFont(45, 0, 0, 0, FW_BOLD, 0, 0, 0, ANSI_CHARSET,
+    OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY,
+    DEFAULT_PITCH | FF_DONTCARE, "Arial");
+  hFontScore = CreateFont(25, 0, 0, 0, FW_BOLD, 0, 0, 0, ANSI_CHARSET,
+    OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY,
+    DEFAULT_PITCH | FF_DONTCARE, "Arial");
 
   // 画像ロード
   hBmpBgBack = LoadBitmap(hInst, MAKEINTRESOURCE(IDB_BG_BACK));
@@ -460,14 +465,14 @@ void Draw(HWND hWnd)
     char* title = "Mac Shooting";
     char* msg = "PRESS ENTER KEY";
 
-    RECT rc = { 140, 120, 500, 350 };
+    RECT rc = { 140, 120, WINDOW_WIDTH-140, WINDOW_HEIGHT-130 };
     DrawPanel(rc, 2, RGB(250,250,250), RGB(200,200,200));
 
     SelectObject(hdcMemory, hFontBig);
-    TextOutShadow(hdcMemory, 215, 150, title, 2, RGB(0,200,200), RGB(50,50,50));
+    TextOutCenteredShadow(hdcMemory, 150, title, 2, RGB(0,200,200), RGB(50,50,50));
 
     SelectObject(hdcMemory, hFontScore);
-    TextOutShadow(hdcMemory, 240, 250, msg, 1, RGB(100,100,100), RGB(10,10,10));
+    TextOutCenteredShadow(hdcMemory, 250, msg, 1, RGB(100,100,100), RGB(10,10,10));
   }
 
   // ゲームオーバー画面
@@ -476,14 +481,14 @@ void Draw(HWND hWnd)
     char* msg1 = "GAME OVER";
     char* msg2 = "PRESS ENTER TO CONTINUE, R TO TITLE";
 
-    RECT rc = { 140, 120, 500, 350 };
+    RECT rc = { 70, 120, WINDOW_WIDTH-70, WINDOW_HEIGHT-130 };
     DrawPanel(rc, 2, RGB(250,250,250), RGB(200,200,200));
 
     SelectObject(hdcMemory, hFontBig);
-    TextOutShadow(hdcMemory, 225, 150, msg1, 2, RGB(255,0,0), RGB(50,50,50));
+    TextOutCenteredShadow(hdcMemory, 150, msg1, 2, RGB(255,0,0), RGB(50,50,50));
 
     SelectObject(hdcMemory, hFontScore);
-    TextOutShadow(hdcMemory, 150, 230, msg2, 1, RGB(100,100,100), RGB(10,10,10));
+    TextOutCenteredShadow(hdcMemory, 230, msg2, 1, RGB(100,100,100), RGB(10,10,10));
   }
 
   // スコア表示（プレイ・ゲームオーバー共通）
@@ -491,19 +496,16 @@ void Draw(HWND hWnd)
   {
     char szScore[32];
     int x, y;
+    wsprintf(szScore, "SCORE: %05d", score);
+    SelectObject(hdcMemory, hFontScore);
     if (gameState == STATE_PLAY)
     {
-      x = 10;
-      y = 10;
+      TextOutShadow(hdcMemory, 10, 10, szScore, 1, RGB(240,130,20), RGB(50,50,50));
     }
     if (gameState == STATE_GAMEOVER)
     {
-      x = 255;
-      y = 270;
+      TextOutCenteredShadow(hdcMemory, 270, szScore, 1, RGB(240,130,20), RGB(50,50,50));
     }
-    wsprintf(szScore, "SCORE: %05d", score);
-    SelectObject(hdcMemory, hFontScore);
-    TextOutShadow(hdcMemory, x, y, szScore, 1, RGB(240,130,20), RGB(50,50,50));
   }
 
   // ハイスコア表示（タイトル・ゲームオーバー共通）
@@ -512,7 +514,7 @@ void Draw(HWND hWnd)
     char szHigh[32];
     wsprintf(szHigh, "HIGH SCORE: %05d", highScore);
     SelectObject(hdcMemory, hFontScore);
-    TextOutShadow(hdcMemory, 235, 300, szHigh, 1, RGB(240,130,50), RGB(50,50,50));
+    TextOutCenteredShadow(hdcMemory, 300, szHigh, 1, RGB(240,130,50), RGB(50,50,50));
   }
   // --- 内部描画用ビットマップに対してお絵描き  END  ---
 
@@ -677,6 +679,29 @@ void TextOutShadow(HDC hdc, int x, int y, const char* text, int offset, COLORREF
 
   // 背景モードを戻す
   SetBkMode(hdc, oldBkMode);
+}
+
+/*
+  ---------------------------------------------------------
+              中央揃えで影付きテキスト描画
+  ---------------------------------------------------------
+    画面の横幅(WINDOW_WIDTH)に対して中央に文字列を描画する
+    y        : Y座標
+    text     : 文字列
+    offset   : 影のズレ幅
+    mainCol  : メイン文字色
+    shadowCol: 影の色
+*/
+void TextOutCenteredShadow(HDC hdc, int y, const char* text, int offset, COLORREF mainCol, COLORREF shadowCol)
+{
+    // 文字列の描画サイズを取得
+    SIZE size;
+    GetTextExtentPoint32(hdc, text, lstrlen(text), &size);
+
+    // 中央座標を計算: (ウィンドウ幅 - 文字列幅) / 2
+    int x = (WINDOW_WIDTH - size.cx) / 2;
+
+    TextOutShadow(hdc, x, y, text, offset, mainCol, shadowCol);
 }
 
 // 指定した色・枠線の長方形を描画
