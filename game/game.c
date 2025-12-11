@@ -14,7 +14,6 @@
 
 // 不変オブジェクト
 HINSTANCE hInst;        // プロセスのハンドル
-HINSTANCE hInst;        // プロセスのハンドル
 HDC hdcScreen;          // ウィンドウ表示領域DC
 HDC hdcMemory;          // 内部描画用DC
 HDC hdcImage;           // 画像用DC
